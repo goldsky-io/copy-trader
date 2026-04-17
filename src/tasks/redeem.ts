@@ -14,7 +14,8 @@ const CONDITIONAL_TOKENS_ABI = [
 ] as const;
 
 export async function main(ctx: TaskContext) {
-  const positions = (await ctx.collection<Position>("positions").findMany({
+  const positionsCollection = await ctx.collection<Position>("positions");
+  const positions = (await positionsCollection.findMany({
     status: "open",
   })) as Position[];
 
@@ -44,7 +45,7 @@ export async function main(ctx: TaskContext) {
           code: "POSITION_LOST",
           message: `Lost position on ${market.question} (held ${pos.side})`,
         });
-        await ctx.collection<Position>("positions").setById(pos.id, {
+        await positionsCollection.setById(pos.id, {
           ...pos,
           status: "redeemed",
         });
@@ -82,7 +83,7 @@ export async function main(ctx: TaskContext) {
         message: `Successfully redeemed ${pos.side} on ${market.question}`,
       });
 
-      await ctx.collection<Position>("positions").setById(pos.id, {
+      await positionsCollection.setById(pos.id, {
         ...pos,
         status: "redeemed",
       });

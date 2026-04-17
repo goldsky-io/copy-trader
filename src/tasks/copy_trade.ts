@@ -26,8 +26,13 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
 
   const tradeAmount = parseFloat(ctx.env.TRADE_AMOUNT_USD || "50");
 
+  // Resolve collections once (ctx.collection returns a Promise)
+  const budgetCollection = await ctx.collection<Budget>("budget");
+  const positionsCollection = await ctx.collection<Position>("positions");
+  const tradesCollection = await ctx.collection<Trade>("trades");
+
   // Check budget
-  const budget = (await ctx.collection<Budget>("budget").findOne({
+  const budget = (await budgetCollection.findOne({
     key: "global",
   })) as Budget | null;
   const maxBudget = parseFloat(ctx.env.MAX_BUDGET_USD || "1000");
@@ -59,7 +64,7 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
 
   // For sells, check we hold a position
   if (side === "SELL") {
-    const position = (await ctx.collection<Position>("positions").findOne({
+    const position = (await positionsCollection.findOne({
       tokenId,
       status: "open",
     })) as Position | null;
@@ -104,7 +109,7 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
   });
 
   // Update positions
-  const existingPos = (await ctx.collection<Position>("positions").findOne({
+  const existingPos = (await positionsCollection.findOne({
     tokenId,
   })) as Position | null;
 
@@ -115,13 +120,13 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
       const newAvg =
         (existingPos.avgPrice * existingPos.size + whalePrice * shares) /
         newSize;
-      await ctx.collection<Position>("positions").setById(existingPos.id, {
+      await positionsCollection.setById(existingPos.id, {
         ...existingPos,
         size: newSize,
         avgPrice: newAvg,
       });
     } else {
-      await ctx.collection<Position>("positions").insertOne({
+      await positionsCollection.insertOne({
         id: tokenId,
         tokenId,
         conditionId: market.conditionId,
@@ -138,7 +143,7 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
       remaining: maxBudget,
       totalSpent: 0,
     };
-    await ctx.collection<Budget>("budget").setById("global", {
+    await budgetCollection.setById("global", {
       key: "global",
       remaining: currentBudget.remaining - tradeAmount,
       totalSpent: currentBudget.totalSpent + tradeAmount,
@@ -146,7 +151,7 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
   } else {
     // Sell: zero out position
     if (existingPos) {
-      await ctx.collection<Position>("positions").setById(existingPos.id, {
+      await positionsCollection.setById(existingPos.id, {
         ...existingPos,
         size: 0,
       });
@@ -154,7 +159,7 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
   }
 
   // Record trade
-  await ctx.collection<Trade>("trades").insertOne({
+  await tradesCollection.insertOne({
     id: `${row.transaction_hash}-${tokenId}-${Date.now()}`,
     tokenId,
     side,
