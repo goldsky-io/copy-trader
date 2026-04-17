@@ -14,6 +14,11 @@ tasks:
     triggers:
       - type: "http"
         authentication: "auth_token"
+  - name: "setup_approvals"
+    path: "./src/tasks/setup_approvals.ts"
+    triggers:
+      - type: "http"
+        authentication: "auth_token"
   - name: "redeem"
     path: "./src/tasks/redeem.ts"
     triggers:

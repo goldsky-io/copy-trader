@@ -61,7 +61,7 @@ export async function main(ctx: TaskContext) {
       const wallet = await ctx.evm.wallet({
         name: "bot-composer",
         privateKey: ctx.env.PRIVATE_KEY as `0x${string}`,
-        sponsorGas: false,
+        sponsorGas: true,
       });
 
       // indexSets: [1] for outcome 0 (YES), [2] for outcome 1 (NO)
@@ -70,7 +70,7 @@ export async function main(ctx: TaskContext) {
       const parentCollectionId =
         "0x0000000000000000000000000000000000000000000000000000000000000000";
 
-      await wallet.callContract(
+      await wallet.writeContract(
         ctx.evm.chains.polygon,
         CONTRACTS.conditionalTokens as `0x${string}`,
         CONDITIONAL_TOKENS_ABI[0],

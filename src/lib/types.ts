@@ -6,8 +6,6 @@ export const CONTRACTS = {
   usdc: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
 } as const;
 
-export const PROXY_WALLET_ADDRESS =
-  "0x51bD8791e9De5147ECbE6b3b9376a2369b3A4C09";
 export const CHAIN_ID = 137;
 
 /** Row from the Turbo pipeline's order_fills sink */

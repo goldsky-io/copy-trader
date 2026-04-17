@@ -5,14 +5,13 @@
 import { Wallet } from "@ethersproject/wallet";
 import { ClobClient, Side, OrderType } from "@polymarket/clob-client";
 import type { TickSize } from "@polymarket/clob-client";
-import { CHAIN_ID, PROXY_WALLET_ADDRESS } from "./types";
-
-const SIGNATURE_TYPE_GNOSIS_SAFE = 2;
+import { CHAIN_ID } from "./types";
 
 let cachedClient: ClobClient | null = null;
 
 /**
- * Get or create an authenticated CLOB client.
+ * Get or create an authenticated CLOB client using EOA signing.
+ * No proxy wallet — funds live directly on the EOA.
  * Caches the client since API key derivation is expensive.
  */
 export async function getClobClient(
@@ -26,14 +25,8 @@ export async function getClobClient(
   const tempClient = new ClobClient(host, CHAIN_ID, wallet);
   const creds = await tempClient.createOrDeriveApiKey();
 
-  cachedClient = new ClobClient(
-    host,
-    CHAIN_ID,
-    wallet,
-    creds,
-    SIGNATURE_TYPE_GNOSIS_SAFE,
-    PROXY_WALLET_ADDRESS
-  );
+  // EOA-mode CLOB client (no funder/proxy arg).
+  cachedClient = new ClobClient(host, CHAIN_ID, wallet, creds);
   return cachedClient;
 }
 
