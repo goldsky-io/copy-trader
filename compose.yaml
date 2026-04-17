@@ -1,0 +1,29 @@
+name: "bot-composer"
+api_version: "stable"
+secrets:
+  - PRIVATE_KEY
+  - POSTGRES_URL
+env:
+  cloud:
+    COPY_WALLETS: "0xWhale1,0xWhale2"
+    TRADE_AMOUNT_USD: "50"
+    MAX_BUDGET_USD: "1000"
+    CLOB_HOST: "https://clob.polymarket.com"
+    GAMMA_HOST: "https://gamma-api.polymarket.com"
+tasks:
+  - name: "watch_wallets"
+    path: "./src/tasks/watch_wallets.ts"
+    triggers:
+      - type: "cron"
+        expression: "*/5 * * * * *"
+      - type: "http"
+        authentication: "auth_token"
+  - name: "copy_trade"
+    path: "./src/tasks/copy_trade.ts"
+  - name: "redeem"
+    path: "./src/tasks/redeem.ts"
+    triggers:
+      - type: "cron"
+        expression: "0 */5 * * * *"
+      - type: "http"
+        authentication: "auth_token"

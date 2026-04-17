@@ -1,0 +1,83 @@
+name: polymarket-ctf-events
+resource_size: s
+description: "Index Polymarket CTF Exchange fills and condition resolutions on Polygon"
+
+sources:
+  poly_logs:
+    type: dataset
+    dataset_name: matic.raw_logs
+    version: 1.0.0
+    start_at: latest
+    filter: >-
+      address IN (
+        '0x4bfb41d5b3570defd03c39a9a4d8de6bd8b8982e',
+        '0x4d97dcd97ec945f40cf65f87097ace5ea0476045'
+      )
+
+transforms:
+  decoded_events:
+    type: sql
+    primary_key: id
+    sql: |
+      SELECT
+        id,
+        block_number,
+        log_index,
+        transaction_hash,
+        address AS contract_address,
+        to_timestamp(block_timestamp) AS block_timestamp,
+        evm_log_decode(
+          '[{"anonymous":false,"inputs":[{"indexed":true,"name":"orderHash","type":"bytes32"},{"indexed":false,"name":"maker","type":"address"},{"indexed":false,"name":"taker","type":"address"},{"indexed":false,"name":"makerAssetId","type":"uint256"},{"indexed":false,"name":"takerAssetId","type":"uint256"},{"indexed":false,"name":"makerAmountFilled","type":"uint256"},{"indexed":false,"name":"takerAmountFilled","type":"uint256"},{"indexed":false,"name":"fee","type":"uint256"}],"name":"OrderFilled","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"conditionId","type":"bytes32"},{"indexed":true,"name":"oracle","type":"address"},{"indexed":true,"name":"questionId","type":"bytes32"},{"indexed":false,"name":"outcomeSlotCount","type":"uint256"},{"indexed":false,"name":"payoutNumerators","type":"uint256[]"}],"name":"ConditionResolution","type":"event"}]',
+          topics,
+          `data`
+        ) AS `decoded`
+      FROM poly_logs
+
+  order_fills:
+    type: sql
+    primary_key: id
+    sql: |
+      SELECT
+        id,
+        block_number,
+        log_index,
+        transaction_hash,
+        block_timestamp,
+        `decoded`.event_params[2] AS maker,
+        `decoded`.event_params[3] AS taker,
+        `decoded`.event_params[4] AS maker_asset_id,
+        `decoded`.event_params[5] AS taker_asset_id,
+        CAST(`decoded`.event_params[6] AS DOUBLE) / 1e6 AS maker_amount,
+        CAST(`decoded`.event_params[7] AS DOUBLE) / 1e6 AS taker_amount,
+        CAST(`decoded`.event_params[8] AS DOUBLE) / 1e6 AS fee
+      FROM decoded_events
+      WHERE `decoded`.event_signature = 'OrderFilled'
+
+  resolutions:
+    type: sql
+    primary_key: id
+    sql: |
+      SELECT
+        id,
+        block_number,
+        log_index,
+        transaction_hash,
+        block_timestamp,
+        `decoded`.event_params[1] AS condition_id
+      FROM decoded_events
+      WHERE `decoded`.event_signature = 'ConditionResolution'
+
+sinks:
+  order_fills_sink:
+    type: postgres
+    from: order_fills
+    table: order_fills
+    secret_name: POSTGRES_SECRET
+    primary_key: id
+
+  resolutions_sink:
+    type: postgres
+    from: resolutions
+    table: resolutions
+    secret_name: POSTGRES_SECRET
+    primary_key: id
