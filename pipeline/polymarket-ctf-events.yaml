@@ -58,12 +58,10 @@ transforms:
     sql: |
       SELECT * FROM order_fills
       WHERE maker IN (
-        '0xwhale1_address_here',
-        '0xwhale2_address_here'
+        '0x21d0a97aac03917e752857a551bbe5103a00e8d7'
       )
       OR taker IN (
-        '0xwhale1_address_here',
-        '0xwhale2_address_here'
+        '0x21d0a97aac03917e752857a551bbe5103a00e8d7'
       )
 
 sinks:

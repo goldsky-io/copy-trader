@@ -1,0 +1,28 @@
+name: polymarket-pnl-community
+resource_size: s
+job: false
+
+sources:
+  user_positions:
+    type: kafka
+    topic: polymarket.pnl.user_positions
+
+transforms:
+  user_positions_transform:
+    type: sql
+    primary_key: user,token_id
+    sql: >-
+      SELECT * EXCEPT (_sm_version, _sm_deleted, _gs_op, user_addr), user_addr
+      AS user, CASE WHEN _sm_deleted = false THEN 'i' ELSE 'd' END AS _gs_op
+      FROM user_positions
+
+sinks:
+  clickhouse_sink:
+    type: clickhouse
+    from: user_positions_transform
+    table: polymarket_user_positions_pnl
+    secret_name: GS_BLOCKCHAIN_WAREHOUSEV2_CH
+    primary_key: user,token_id
+    batch_size: 10000
+    batch_flush_interval: 10s
+    parallelism: 4
