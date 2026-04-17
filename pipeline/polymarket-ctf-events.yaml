@@ -58,10 +58,10 @@ transforms:
     sql: |
       SELECT * FROM order_fills
       WHERE maker IN (
-        '0x21d0a97aac03917e752857a551bbe5103a00e8d7'
+        '0xff6ecab4cb68fd2de71222f4f190a77c1812176e'
       )
       OR taker IN (
-        '0x21d0a97aac03917e752857a551bbe5103a00e8d7'
+        '0xff6ecab4cb68fd2de71222f4f190a77c1812176e'
       )
 
 sinks:
@@ -71,3 +71,4 @@ sinks:
     url: https://api.goldsky.com/api/admin/compose/v1/bot-composer/tasks/copy_trade
     secret_name: COMPOSE_WEBHOOK_AUTH
     one_row_per_request: true
+    payload_version: "2"
