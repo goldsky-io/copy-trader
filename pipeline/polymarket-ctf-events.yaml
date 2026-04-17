@@ -57,16 +57,22 @@ transforms:
     sql: |
       SELECT * FROM order_fills
       WHERE maker IN (
-        '0xff6ecab4cb68fd2de71222f4f190a77c1812176e'
+        '0xff6ecab4cb68fd2de71222f4f190a77c1812176e',
+        '0x1ac5696a7c6bda958fae00eceb761f111f5607f9',
+        '0x9cba9eff450167f1d0d4e375ed522c69441cfc18',
+        '0x5298e13c9ebd10baf366f96db7d9691ad6bbf219'
       )
       OR taker IN (
-        '0xff6ecab4cb68fd2de71222f4f190a77c1812176e'
+        '0xff6ecab4cb68fd2de71222f4f190a77c1812176e',
+        '0x1ac5696a7c6bda958fae00eceb761f111f5607f9',
+        '0x9cba9eff450167f1d0d4e375ed522c69441cfc18',
+        '0x5298e13c9ebd10baf366f96db7d9691ad6bbf219'
       )
 
 sinks:
   copy_trade_webhook:
     type: webhook
     from: watched_fills
-    url: https://api.goldsky.com/api/admin/compose/v1/bot-composer/tasks/copy_trade
+    url: https://api.goldsky.com/api/admin/compose/v1/copy-trader/tasks/copy_trade
     secret_name: COMPOSE_WEBHOOK_AUTH
     one_row_per_request: true

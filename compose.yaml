@@ -1,4 +1,4 @@
-name: "bot-composer"
+name: "copy-trader"
 api_version: "preview"
 secrets:
   - PRIVATE_KEY
