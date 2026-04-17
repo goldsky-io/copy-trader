@@ -1,5 +1,5 @@
 name: "bot-composer"
-api_version: "stable"
+api_version: "preview"
 secrets:
   - PRIVATE_KEY
 env:
