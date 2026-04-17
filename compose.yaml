@@ -4,10 +4,11 @@ secrets:
   - PRIVATE_KEY
 env:
   cloud:
-    TRADE_AMOUNT_USD: "50"
-    MAX_BUDGET_USD: "1000"
+    TRADE_AMOUNT_USD: "1"
+    MAX_BUDGET_USD: "5"
     CLOB_HOST: "https://clob.polymarket.com"
     GAMMA_HOST: "https://gamma-api.polymarket.com"
+    WATCHED_WALLETS: "0xff6ecab4cb68fd2de71222f4f190a77c1812176e,0x1ac5696a7c6bda958fae00eceb761f111f5607f9,0x9cba9eff450167f1d0d4e375ed522c69441cfc18,0x5298e13c9ebd10baf366f96db7d9691ad6bbf219"
 tasks:
   - name: "copy_trade"
     path: "./src/tasks/copy_trade.ts"

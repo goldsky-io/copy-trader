@@ -40,11 +40,7 @@ export async function main(ctx: TaskContext) {
       // Check if we hold the winning side
       const ourOutcomeIndex = pos.side === "YES" ? 0 : 1;
       if (ourOutcomeIndex !== winner) {
-        // We lost — mark position as redeemed (worth $0)
-        ctx.logEvent({
-          code: "POSITION_LOST",
-          message: `Lost position on ${market.question} (held ${pos.side})`,
-        });
+        console.log(`[redeem] POSITION_LOST: ${market.question} (held ${pos.side})`);
         await positionsCollection.setById(pos.id, {
           ...pos,
           status: "redeemed",
@@ -52,15 +48,10 @@ export async function main(ctx: TaskContext) {
         continue;
       }
 
-      // We won — redeem on-chain
-      ctx.logEvent({
-        code: "REDEEMING",
-        message: `Redeeming winning ${pos.side} position on ${market.question}`,
-        data: { conditionId: pos.conditionId, size: pos.size },
-      });
+      console.log(`[redeem] REDEEMING: winning ${pos.side} position on ${market.question}`);
 
       const wallet = await ctx.evm.wallet({
-        name: "bot-composer",
+        name: "copy-trader",
         privateKey: ctx.env.PRIVATE_KEY as `0x${string}`,
         sponsorGas: true,
       });
@@ -78,20 +69,14 @@ export async function main(ctx: TaskContext) {
         [CONTRACTS.usdc, parentCollectionId, pos.conditionId, indexSets]
       );
 
-      ctx.logEvent({
-        code: "REDEEMED",
-        message: `Successfully redeemed ${pos.side} on ${market.question}`,
-      });
+      console.log(`[redeem] REDEEMED: ${pos.side} on ${market.question}`);
 
       await positionsCollection.setById(pos.id, {
         ...pos,
         status: "redeemed",
       });
     } catch (err) {
-      ctx.logEvent({
-        code: "REDEEM_ERROR",
-        message: `Failed to redeem ${pos.tokenId}: ${err}`,
-      });
+      console.log(`[redeem] REDEEM_ERROR for ${pos.tokenId}: ${err}`);
       // Continue to next position — don't let one failure block others
     }
   }

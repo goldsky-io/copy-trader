@@ -6,7 +6,7 @@
  * the EOA doesn't need MATIC.
  *
  * Call: curl -X POST -H "Authorization: Bearer $COMPOSE_TOKEN" \
- *   https://api.goldsky.com/api/admin/compose/v1/bot-composer/tasks/setup_approvals
+ *   https://api.goldsky.com/api/admin/compose/v1/copy-trader/tasks/setup_approvals
  */
 import type { TaskContext } from "compose";
 import { CONTRACTS } from "../lib/types";
@@ -19,7 +19,7 @@ const ERC1155_SET_APPROVAL_ABI = "setApprovalForAll(address,bool)";
 
 export async function main(ctx: TaskContext) {
   const wallet = await ctx.evm.wallet({
-    name: "bot-composer",
+    name: "copy-trader",
     privateKey: ctx.env.PRIVATE_KEY as `0x${string}`,
     sponsorGas: true,
   });
@@ -29,43 +29,33 @@ export async function main(ctx: TaskContext) {
     { name: "NegRisk Exchange", address: CONTRACTS.negRiskExchange },
   ];
 
+  const results: Array<{ name: string; type: string; tx: string }> = [];
+
   // USDC.e (ERC-20) approvals — let each exchange spend our USDC
   for (const ex of exchanges) {
-    ctx.logEvent({
-      code: "APPROVING_USDC",
-      message: `Approving USDC for ${ex.name}`,
-    });
+    console.log(`[setup_approvals] Approving USDC for ${ex.name}`);
     const tx = await wallet.writeContract(
       ctx.evm.chains.polygon,
       CONTRACTS.usdc as `0x${string}`,
       ERC20_APPROVE_ABI,
       [ex.address, MAX_UINT256]
     );
-    ctx.logEvent({
-      code: "APPROVED_USDC",
-      message: `USDC approved for ${ex.name}`,
-      data: { tx: tx.hash },
-    });
+    console.log(`[setup_approvals] USDC approved for ${ex.name}: ${tx.hash}`);
+    results.push({ name: ex.name, type: "USDC", tx: tx.hash });
   }
 
   // ConditionalTokens (ERC-1155) approvals — let each exchange move our share tokens
   for (const ex of exchanges) {
-    ctx.logEvent({
-      code: "APPROVING_CTF",
-      message: `Approving ConditionalTokens for ${ex.name}`,
-    });
+    console.log(`[setup_approvals] Approving ConditionalTokens for ${ex.name}`);
     const tx = await wallet.writeContract(
       ctx.evm.chains.polygon,
       CONTRACTS.conditionalTokens as `0x${string}`,
       ERC1155_SET_APPROVAL_ABI,
       [ex.address, true]
     );
-    ctx.logEvent({
-      code: "APPROVED_CTF",
-      message: `ConditionalTokens approved for ${ex.name}`,
-      data: { tx: tx.hash },
-    });
+    console.log(`[setup_approvals] ConditionalTokens approved for ${ex.name}: ${tx.hash}`);
+    results.push({ name: ex.name, type: "CTF", tx: tx.hash });
   }
 
-  return { success: true, wallet: wallet.address };
+  return { success: true, wallet: wallet.address, approvals: results };
 }

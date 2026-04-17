@@ -44,30 +44,29 @@ export async function executeTrade(
   tokenId: string,
   side: "BUY" | "SELL",
   amountUsd: number,
+  whalePrice: number,
   tickSize: string,
   negRisk: boolean
 ): Promise<TradeResult> {
   try {
-    // Get current price to calculate shares
-    const priceResp = await client.getPrice(
-      tokenId,
-      side === "BUY" ? Side.BUY : Side.SELL
-    );
-    const price = parseFloat(priceResp?.price);
-    if (!price || price <= 0 || price >= 1) {
-      return { success: false, error: `Invalid price: ${priceResp?.price}` };
+    // Use the whale's fill price as our entry price. That's the price we want
+    // to match for copy-trading — don't chase the current book (which may have
+    // moved). CLOB will fill at this price or better (or reject).
+    if (!whalePrice || whalePrice <= 0 || whalePrice >= 1) {
+      return { success: false, error: `Invalid whale price: ${whalePrice}` };
     }
 
-    // Calculate size (shares). BUY amount = shares * price. SELL amount = shares.
+    // Round to tick size so price is valid on the book
+    const tick = parseFloat(tickSize) || 0.01;
+    const price = Math.round(whalePrice / tick) * tick;
+
+    // Calculate size (shares) for the configured USD amount
     let shares = Math.floor(amountUsd / price);
 
-    // Enforce $1 minimum notional
-    if (price * shares < 1) {
-      shares = Math.ceil(1 / price);
-    }
-    if (shares < 1) {
-      return { success: false, error: "Trade too small" };
-    }
+    // Enforce CLOB's minimum notional of $1 (most crypto 5m markets require 5 shares)
+    const MIN_SHARES = 5;
+    if (shares < MIN_SHARES) shares = MIN_SHARES;
+    console.log(`[clob] ${side} ${shares} shares @ ${price} (notional=$${(shares*price).toFixed(2)})`);
 
     const amount = side === "BUY" ? shares * price : shares;
 

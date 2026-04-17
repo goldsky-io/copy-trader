@@ -10,18 +10,26 @@ import { lookupMarketByTokenId } from "../lib/gamma";
 import type { OrderFillRow, Position, Trade, Budget } from "../lib/types";
 
 export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
+  console.log("[copy_trade] invoked with params:", JSON.stringify(params));
   if (!params) {
-    ctx.logEvent({ code: "NO_PARAMS", message: "No webhook payload" });
-    return;
+    return { status: "NO_PARAMS" };
   }
 
   const row = params as unknown as OrderFillRow;
 
+  // Build watched wallet set from env (comma-separated)
+  const watchedWallets = new Set(
+    (ctx.env.WATCHED_WALLETS || "")
+      .split(",")
+      .map((w: string) => w.trim().toLowerCase())
+      .filter(Boolean)
+  );
+
   // Parse the fill to determine side and token
-  const { side, tokenId, whalePrice } = parseFill(row);
+  const { side, tokenId, whalePrice } = parseFill(row, watchedWallets);
+  console.log(`[copy_trade] parsed: side=${side} tokenId=${tokenId.slice(0,15)}... price=${whalePrice}`);
   if (!tokenId) {
-    ctx.logEvent({ code: "SKIP", message: "Could not parse fill" });
-    return;
+    return { status: "SKIP_NO_TOKEN" };
   }
 
   const tradeAmount = parseFloat(ctx.env.TRADE_AMOUNT_USD || "50");
@@ -38,8 +46,8 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
   const maxBudget = parseFloat(ctx.env.MAX_BUDGET_USD || "1000");
 
   if (side === "BUY" && budget && budget.remaining < tradeAmount) {
-    ctx.logEvent({ code: "BUDGET_EXHAUSTED", message: "Skipping trade" });
-    return;
+    console.log(`[copy_trade] BUDGET_EXHAUSTED: remaining=${budget.remaining} need=${tradeAmount}`);
+    return { status: "BUDGET_EXHAUSTED" };
   }
 
   // Look up market via Gamma
@@ -47,19 +55,13 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
   const market = await lookupMarketByTokenId(ctx.fetch, gammaHost, tokenId);
 
   if (!market) {
-    ctx.logEvent({
-      code: "MARKET_NOT_FOUND",
-      message: `No market for token ${tokenId}`,
-    });
-    return;
+    console.log(`[copy_trade] MARKET_NOT_FOUND token=${tokenId.slice(0,15)}...`);
+    return { status: "MARKET_NOT_FOUND", tokenId };
   }
 
   if (!market.enableOrderBook) {
-    ctx.logEvent({
-      code: "MARKET_CLOSED",
-      message: `Order book disabled: ${market.question}`,
-    });
-    return;
+    console.log(`[copy_trade] MARKET_CLOSED: ${market.question}`);
+    return { status: "MARKET_CLOSED", market: market.question };
   }
 
   // For sells, check we hold a position
@@ -70,11 +72,8 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
     })) as Position | null;
 
     if (!position || position.size <= 0) {
-      ctx.logEvent({
-        code: "NO_POSITION",
-        message: `No position to sell for ${tokenId}`,
-      });
-      return;
+      console.log(`[copy_trade] NO_POSITION to sell for ${tokenId.slice(0,15)}...`);
+      return { status: "NO_POSITION" };
     }
   }
 
@@ -89,24 +88,17 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
     tokenId,
     side,
     tradeAmount,
+    whalePrice,
     market.tickSize,
     market.negRisk
   );
 
   if (!result.success) {
-    ctx.logEvent({
-      code: "TRADE_FAILED",
-      message: `${side} failed: ${result.error}`,
-      data: { tokenId, market: market.question },
-    });
-    return;
+    console.log(`[copy_trade] TRADE_FAILED: ${side} ${market.question} — ${result.error}`);
+    return { status: "TRADE_FAILED", error: result.error, market: market.question };
   }
 
-  ctx.logEvent({
-    code: "TRADE_EXECUTED",
-    message: `${side} ${tokenId} — order ${result.orderId}`,
-    data: { market: market.question, side, orderId: result.orderId },
-  });
+  console.log(`[copy_trade] TRADE_EXECUTED: ${side} ${market.question} — order ${result.orderId}`);
 
   // Update positions
   const existingPos = (await positionsCollection.findOne({
@@ -171,36 +163,59 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
     eventTxHash: row.transaction_hash,
     timestamp: new Date().toISOString(),
   });
+
+  return {
+    status: "TRADE_EXECUTED",
+    side,
+    market: market.question,
+    orderId: result.orderId,
+  };
 }
 
 /**
  * Parse an OrderFilled webhook payload to determine trade direction.
  *
- * maker_asset_id/taker_asset_id: "0" means USDC (collateral).
- * If a wallet is giving USDC, they're buying shares.
- * If a wallet is giving shares, they're selling.
+ * CTF Exchange OrderFilled:
+ *   maker gives makerAsset of makerAmountFilled
+ *   taker gives takerAsset of takerAmountFilled
+ *   asset_id "0" = USDC (collateral), anything else = CTF share token
+ *
+ * The side we care about (BUY vs SELL) is the action the WATCHED WALLET is taking.
+ * The pipeline filters to trades where maker OR taker is a watched wallet.
+ *
+ * Price = USDC amount / shares amount (always in [0,1] for valid fills).
  */
-function parseFill(row: OrderFillRow): {
-  side: "BUY" | "SELL";
-  tokenId: string;
-  whalePrice: number;
-} {
-  // The pipeline already filtered to watched wallets, so one of maker/taker
-  // is a watched wallet. We just need to figure out the direction.
+function parseFill(
+  row: OrderFillRow,
+  watchedWallets: Set<string>
+): { side: "BUY" | "SELL"; tokenId: string; whalePrice: number } {
+  const makerIsWhale = watchedWallets.has(row.maker.toLowerCase());
+  const takerIsWhale = watchedWallets.has(row.taker.toLowerCase());
 
-  // Check maker side first
-  if (row.maker_asset_id === "0") {
-    // Maker giving USDC → maker is BUYING shares
-    const tokenId = row.taker_asset_id;
-    const price = row.maker_amount > 0 ? row.taker_amount / row.maker_amount : 0;
-    return { side: "BUY", tokenId, whalePrice: price };
-  } else if (row.taker_asset_id === "0") {
-    // Taker giving USDC → taker is BUYING, maker is SELLING
-    const tokenId = row.maker_asset_id;
-    const price = row.taker_amount > 0 ? row.maker_amount / row.taker_amount : 0;
-    return { side: "SELL", tokenId, whalePrice: price };
+  // Figure out which side is USDC and which is shares
+  const makerIsUsdc = row.maker_asset_id === "0";
+  const takerIsUsdc = row.taker_asset_id === "0";
+
+  if (!makerIsUsdc && !takerIsUsdc) {
+    // Share-for-share swap, shouldn't happen in normal flow
+    return { side: "BUY", tokenId: "", whalePrice: 0 };
   }
 
-  // Neither side is USDC — share-for-share swap (unlikely, skip)
-  return { side: "BUY", tokenId: "", whalePrice: 0 };
+  // Identify share token and its amount, plus the USDC amount
+  const shareTokenId = makerIsUsdc ? row.taker_asset_id : row.maker_asset_id;
+  const sharesAmount = makerIsUsdc ? row.taker_amount : row.maker_amount;
+  const usdcAmount = makerIsUsdc ? row.maker_amount : row.taker_amount;
+  const price = sharesAmount > 0 ? usdcAmount / sharesAmount : 0;
+
+  // Whoever gives USDC is buying shares. Determine if watched wallet is the buyer.
+  const usdcGiver = makerIsUsdc ? "maker" : "taker";
+  const whaleIsUsdcGiver =
+    (usdcGiver === "maker" && makerIsWhale) ||
+    (usdcGiver === "taker" && takerIsWhale);
+
+  return {
+    side: whaleIsUsdcGiver ? "BUY" : "SELL",
+    tokenId: shareTokenId,
+    whalePrice: price,
+  };
 }
