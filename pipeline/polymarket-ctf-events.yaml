@@ -23,7 +23,7 @@ transforms:
         transaction_hash,
         to_timestamp(block_timestamp) AS block_timestamp,
         evm_log_decode(
-          '[{"anonymous":false,"inputs":[{"indexed":true,"name":"orderHash","type":"bytes32"},{"indexed":false,"name":"maker","type":"address"},{"indexed":false,"name":"taker","type":"address"},{"indexed":false,"name":"makerAssetId","type":"uint256"},{"indexed":false,"name":"takerAssetId","type":"uint256"},{"indexed":false,"name":"makerAmountFilled","type":"uint256"},{"indexed":false,"name":"takerAmountFilled","type":"uint256"},{"indexed":false,"name":"fee","type":"uint256"}],"name":"OrderFilled","type":"event"}]',
+          '[{"anonymous":false,"inputs":[{"indexed":true,"name":"orderHash","type":"bytes32"},{"indexed":true,"name":"maker","type":"address"},{"indexed":true,"name":"taker","type":"address"},{"indexed":false,"name":"makerAssetId","type":"uint256"},{"indexed":false,"name":"takerAssetId","type":"uint256"},{"indexed":false,"name":"makerAmountFilled","type":"uint256"},{"indexed":false,"name":"takerAmountFilled","type":"uint256"},{"indexed":false,"name":"fee","type":"uint256"}],"name":"OrderFilled","type":"event"}]',
           topics,
           `data`
         ) AS `decoded`
