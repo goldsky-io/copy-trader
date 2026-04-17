@@ -68,6 +68,6 @@ sinks:
   copy_trade_webhook:
     type: webhook
     from: watched_fills
-    url: https://YOUR_COMPOSE_APP_URL/tasks/copy_trade
-    secret_name: COMPOSE_AUTH
+    url: https://api.goldsky.com/api/admin/compose/v1/bot-composer/tasks/copy_trade
+    secret_name: COMPOSE_WEBHOOK_AUTH
     one_row_per_request: true

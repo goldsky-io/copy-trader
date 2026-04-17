@@ -1,0 +1,81 @@
+{
+    "name": "@polymarket/clob-client",
+    "description": "Typescript client for Polymarket's CLOB",
+    "version": "5.8.1",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Polymarket/clob-client.git"
+    },
+    "homepage": "https://github.com/Polymarket/clob-client",
+    "bugs": {
+        "url": "https://github.com/Polymarket/clob-client/issues"
+    },
+    "contributors": [
+        {
+            "name": "Jonathan Amenechi",
+            "url": "https://github.com/JonathanAmenechi"
+        },
+        {
+            "name": "Rodrigo Calvo",
+            "url": "https://github.com/poly-rodr"
+        },
+        {
+            "name": "Matt Walker",
+            "url": "https://github.com/mttwlkr"
+        },
+        {
+            "name": "Liam Kovatch",
+            "url": "https://github.com/l-kov"
+        },
+        {
+            "name": "Mike Shrieve",
+            "url": "https://github.com/mshrieve"
+        },
+        {
+            "name": "Danny Dresner",
+            "url": "https://github.com/ddresner-pm"
+        }
+    ],
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "type": "module",
+    "files": [
+        "/dist"
+    ],
+    "sideEffects": false,
+    "keywords": [
+        "blockchain",
+        "ethereum"
+    ],
+    "engines": {
+        "node": ">=20.10"
+    },
+    "license": "MIT",
+    "packageManager": "pnpm@10.30.3",
+    "scripts": {
+        "build": "rm -rf dist && tsc -p tsconfig.build.json",
+        "typecheck": "tsc -p tsconfig.test.json --noEmit",
+        "test": "pnpm typecheck && vitest run --coverage",
+        "lint": "biome check ./src",
+        "ci": "pnpm lint && pnpm test && pnpm build",
+        "deploy": "pnpm build && npm publish --access public --provenance"
+    },
+    "dependencies": {
+        "@polymarket/builder-signing-sdk": "^1.0.0",
+        "axios": "^1.0.0",
+        "browser-or-node": "^2.1.1",
+        "viem": "^2.46.3"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "^2.4.5",
+        "@ethersproject/wallet": "^5.8.0",
+        "@types/node": "^22.19.1",
+        "@types/ws": "^8.5.3",
+        "@vitest/coverage-v8": "^4.0.18",
+        "dotenv": "^17.3.1",
+        "ethers": "^5.8.0",
+        "typescript": "^5.9.3",
+        "vitest": "^4.0.18",
+        "ws": "^8.11.0"
+    }
+}
