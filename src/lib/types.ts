@@ -26,13 +26,6 @@ export type OrderFillRow = {
   fee: number;
 };
 
-/** Cursor for tracking processed events */
-export type Cursor = {
-  key: string;
-  block_number: number;
-  log_index: number;
-};
-
 /** Position tracked in collections */
 export type Position = {
   id: string; // tokenId
@@ -78,10 +71,3 @@ export type MarketInfo = {
   clobTokenIds: [string, string];
 };
 
-/** Params passed from watch_wallets to copy_trade */
-export type CopyTradeParams = {
-  tokenId: string;
-  side: "BUY" | "SELL";
-  whalePrice: number;
-  eventTxHash: string;
-};

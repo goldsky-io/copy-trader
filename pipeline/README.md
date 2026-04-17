@@ -1,51 +1,63 @@
 # Polymarket CTF Events Pipeline
 
-Standalone Turbo pipeline that indexes Polymarket trade events on Polygon.
+Turbo pipeline that watches Polymarket trades for specific wallets and fires a webhook on each fill.
 
-## Events Indexed
+## How It Works
 
-- **OrderFilled** — from CTF Exchange (`0x4bFb...982E`). Every matched trade with maker, taker, asset IDs, amounts, and fees.
-- **ConditionResolution** — from ConditionalTokens (`0x4D97...6045`). Market resolution events with condition ID and payout numerators.
+1. Indexes all `OrderFilled` events from the CTF Exchange on Polygon
+2. Filters to rows where maker or taker is in your watched wallet list
+3. Sends each matching fill as a POST to your Compose app's `copy_trade` endpoint
 
-## Deploy
+## Setup
+
+### 1. Configure Watched Wallets
+
+Edit `polymarket-ctf-events.yaml` — find the `watched_fills` transform and replace the placeholder addresses:
+
+```sql
+WHERE maker IN ('0xYourWhale1', '0xYourWhale2')
+   OR taker IN ('0xYourWhale1', '0xYourWhale2')
+```
+
+### 2. Configure Webhook URL
+
+Update the `copy_trade_webhook` sink URL to point at your Compose app:
+
+```yaml
+url: https://YOUR_COMPOSE_APP_URL/tasks/copy_trade
+```
+
+### 3. Create Auth Secret
 
 ```bash
-# Create Postgres secret
-goldsky secret create POSTGRES_SECRET --value "postgresql://user:pass@host:5432/db"
+goldsky secret create COMPOSE_AUTH --type httpauth \
+  --header "Authorization" --value "Bearer YOUR_COMPOSE_API_TOKEN"
+```
 
-# Validate config
+### 4. Deploy
+
+```bash
 goldsky turbo validate polymarket-ctf-events.yaml
-
-# Deploy
 goldsky turbo apply polymarket-ctf-events.yaml
 ```
 
-## Sink Tables
+## Webhook Payload
 
-### `order_fills`
+Each POST contains a single `OrderFilled` row:
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | VARCHAR | Unique event ID |
-| block_number | BIGINT | Block number |
-| log_index | INT | Log index within block |
-| transaction_hash | VARCHAR | Transaction hash |
-| block_timestamp | TIMESTAMP | Block timestamp |
-| maker | VARCHAR | Maker address |
-| taker | VARCHAR | Taker address |
-| maker_asset_id | VARCHAR | Maker's asset (token ID or "0" for USDC) |
-| taker_asset_id | VARCHAR | Taker's asset (token ID or "0" for USDC) |
-| maker_amount | DOUBLE | Maker amount (USDC-scaled, divided by 1e6) |
-| taker_amount | DOUBLE | Taker amount (USDC-scaled, divided by 1e6) |
-| fee | DOUBLE | Fee amount (USDC-scaled) |
-
-### `resolutions`
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | VARCHAR | Unique event ID |
-| block_number | BIGINT | Block number |
-| log_index | INT | Log index within block |
-| transaction_hash | VARCHAR | Transaction hash |
-| block_timestamp | TIMESTAMP | Block timestamp |
-| condition_id | VARCHAR | Condition ID (bytes32) |
+```json
+{
+  "id": "...",
+  "block_number": 12345678,
+  "log_index": 42,
+  "transaction_hash": "0x...",
+  "block_timestamp": "2026-04-16T12:00:00Z",
+  "maker": "0x...",
+  "taker": "0x...",
+  "maker_asset_id": "12345...",
+  "taker_asset_id": "0",
+  "maker_amount": 100.5,
+  "taker_amount": 50.25,
+  "fee": 0.5
+}
+```
