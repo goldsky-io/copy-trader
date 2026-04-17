@@ -28,7 +28,6 @@ transforms:
           `data`
         ) AS `decoded`
       FROM poly_logs
-      WHERE topics[1] IS NOT NULL
 
   order_fills:
     type: sql
@@ -71,4 +70,3 @@ sinks:
     url: https://api.goldsky.com/api/admin/compose/v1/bot-composer/tasks/copy_trade
     secret_name: COMPOSE_WEBHOOK_AUTH
     one_row_per_request: true
-    payload_version: "2"
