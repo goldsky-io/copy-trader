@@ -10,7 +10,7 @@ import type { Position } from "../lib/types";
 import { CONTRACTS } from "../lib/types";
 
 const CONDITIONAL_TOKENS_ABI = [
-  "function redeemPositions(address collateralToken, bytes32 parentCollectionId, bytes32 conditionId, uint256[] indexSets)",
+  "redeemPositions(address,bytes32,bytes32,uint256[])",
 ] as const;
 
 export async function main(ctx: TaskContext) {

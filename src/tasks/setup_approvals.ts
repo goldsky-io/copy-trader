@@ -14,10 +14,8 @@ import { CONTRACTS } from "../lib/types";
 const MAX_UINT256 =
   115792089237316195423570985008687907853269984665640564039457584007913129639935n;
 
-const ERC20_APPROVE_ABI =
-  "function approve(address spender, uint256 amount) returns (bool)";
-const ERC1155_SET_APPROVAL_ABI =
-  "function setApprovalForAll(address operator, bool approved)";
+const ERC20_APPROVE_ABI = "approve(address,uint256)";
+const ERC1155_SET_APPROVAL_ABI = "setApprovalForAll(address,bool)";
 
 export async function main(ctx: TaskContext) {
   const wallet = await ctx.evm.wallet({
