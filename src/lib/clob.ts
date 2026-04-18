@@ -105,9 +105,9 @@ export async function executeTrade(
     const tick = parseFloat(tickSize) || 0.01;
     const price = Math.round(whalePrice / tick) * tick;
 
-    let shares = Math.floor(amountUsd / price);
-    const MIN_SHARES = 5; // most crypto 5m markets require >=5 shares
-    if (shares < MIN_SHARES) shares = MIN_SHARES;
+    // Demo: smallest order that satisfies Polymarket's $1 minimum notional.
+    // 1 share at any price < $1 is below the minimum, so round up.
+    const shares = Math.max(1, Math.ceil(1 / price));
 
     // SDK's `amount` param for createMarketOrder:
     //   BUY: USDC to spend (shares * price)
