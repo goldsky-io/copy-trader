@@ -5,6 +5,7 @@
  * Determines buy/sell side, looks up market via Gamma, places CLOB order.
  */
 import type { TaskContext } from "compose";
+import { privateKeyToAccount } from "viem/accounts";
 import { executeTrade } from "../lib/clob";
 import { lookupMarketByTokenId } from "../lib/gamma";
 import type { OrderFillRow, Position, Trade, Budget } from "../lib/types";
@@ -64,17 +65,30 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
     return { status: "MARKET_CLOSED", market: market.question };
   }
 
-  // For sells, check we hold a position
+  // For sells, check we actually hold the share on-chain via Polymarket's
+  // data API (source of truth — the local positions collection can drift).
+  let sellSize = 0;
   if (side === "SELL") {
-    const position = (await positionsCollection.findOne({
-      tokenId,
-      status: "open",
-    })) as Position | null;
+    const pk = ctx.env.PRIVATE_KEY as `0x${string}`;
+    const address = privateKeyToAccount(
+      pk.startsWith("0x") ? pk : (`0x${pk}` as `0x${string}`)
+    ).address;
 
-    if (!position || position.size <= 0) {
-      console.log(`[copy_trade] NO_POSITION to sell for ${tokenId.slice(0,15)}...`);
+    const positions = (await ctx.fetch(
+      `https://data-api.polymarket.com/positions?user=${address}&limit=100&sortBy=CURRENT&sortOrder=DESC`
+    )) as Array<{ asset: string; size: number }>;
+
+    const match = positions.find((p) => p.asset === tokenId);
+    if (!match || match.size <= 0) {
+      console.log(
+        `[copy_trade] NO_POSITION to sell for ${tokenId.slice(0, 15)}...`
+      );
       return { status: "NO_POSITION" };
     }
+    sellSize = match.size;
+    console.log(
+      `[copy_trade] have ${sellSize} shares on-chain for ${tokenId.slice(0, 15)}...`
+    );
   }
 
   // Execute CLOB trade via proxy
@@ -88,7 +102,8 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
     whalePrice,
     market.tickSize,
     market.negRisk,
-    market.feeRateBps
+    market.feeRateBps,
+    sellSize
   );
 
   if (!result.success) {

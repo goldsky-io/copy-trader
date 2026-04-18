@@ -94,7 +94,8 @@ export async function executeTrade(
   whalePrice: number,
   tickSize: string,
   negRisk: boolean,
-  feeRateBps: number
+  feeRateBps: number,
+  sellSize?: number
 ): Promise<TradeResult> {
   try {
     if (!whalePrice || whalePrice <= 0 || whalePrice >= 1) {
@@ -105,9 +106,16 @@ export async function executeTrade(
     const tick = parseFloat(tickSize) || 0.01;
     const price = Math.round(whalePrice / tick) * tick;
 
-    // Demo: smallest order that satisfies Polymarket's $1 minimum notional.
-    // 1 share at any price < $1 is below the minimum, so round up.
-    const shares = Math.max(1, Math.ceil(1 / price));
+    // For BUY: smallest order that satisfies Polymarket's $1 minimum notional.
+    // For SELL: sell everything we hold (mirrors the whale exiting).
+    const shares =
+      side === "SELL"
+        ? Math.floor(sellSize ?? 0)
+        : Math.max(1, Math.ceil(1 / price));
+
+    if (shares < 1) {
+      return { success: false, error: `size too small (${shares})` };
+    }
 
     // SDK's `amount` param for createMarketOrder:
     //   BUY: USDC to spend (shares * price)
