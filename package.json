@@ -1,5 +1,5 @@
 {
-  "name": "bot-composer",
+  "name": "copy-trader",
   "version": "0.1.0",
   "private": true,
   "description": "Polymarket whale copy-trading bot powered by Goldsky Compose + Turbo",

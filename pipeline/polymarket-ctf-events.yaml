@@ -50,7 +50,8 @@ transforms:
       WHERE `decoded`.event_signature = 'OrderFilled'
 
   # Filter to only watched wallets.
-  # UPDATE THESE ADDRESSES to the wallets you want to copy-trade.
+  # REPLACE THESE ADDRESSES — must match WATCHED_WALLETS in compose.yaml.
+  # Example defaults shown (7 high-win-rate traders as of 2026-04-18).
   watched_fills:
     type: sql
     primary_key: id
@@ -76,6 +77,8 @@ transforms:
       )
 
 sinks:
+  # REPLACE the app name in the URL below if you renamed the Compose app.
+  # Default matches compose.yaml's `name: "copy-trader"`.
   copy_trade_webhook:
     type: webhook
     from: watched_fills

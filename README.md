@@ -75,25 +75,26 @@ env:
 goldsky compose secret set PRIVATE_KEY --value "0x..."
 ```
 
-### 4. Deploy
+### 4. Create the webhook auth secret (one time)
 
 ```bash
-# Compose app
-goldsky compose deploy
-
-# Webhook auth secret (so Turbo can call the Compose HTTP endpoint)
 goldsky secret create --name COMPOSE_WEBHOOK_AUTH \
   --value '{"type": "httpauth", "secretKey": "Authorization", "secretValue": "Bearer YOUR_COMPOSE_API_TOKEN"}'
-
-# Turbo pipeline (update the webhook URL in the YAML first to match your app name)
-goldsky turbo apply pipeline/polymarket-ctf-events.yaml
 ```
 
-### 5. Fund the wallet
+### 5. Deploy
+
+```bash
+./scripts/deploy.sh
+```
+
+This deploys the Compose app + Turbo pipeline and waits for the app to reach `RUNNING`. Re-run it any time you change config.
+
+### 6. Fund the wallet
 
 Send USDC.e (`0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174`) on Polygon to the EOA. No MATIC needed — Compose sponsors gas for all on-chain calls.
 
-### 6. Grant approvals (one time)
+### 7. Grant approvals (one time)
 
 ```bash
 curl -X POST -H "Authorization: Bearer $COMPOSE_TOKEN" \
