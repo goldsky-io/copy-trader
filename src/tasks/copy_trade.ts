@@ -8,7 +8,7 @@ import type { TaskContext } from "compose";
 import { privateKeyToAccount } from "viem/accounts";
 import { executeTrade } from "../lib/clob";
 import { lookupMarketByTokenId } from "../lib/gamma";
-import type { OrderFillRow, Position, Trade, Budget } from "../lib/types";
+import type { OrderFillRow, Position, Trade } from "../lib/types";
 
 export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
   console.log("[copy_trade] invoked with params:", JSON.stringify(params));
@@ -36,19 +36,41 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
   const tradeAmount = parseFloat(ctx.env.TRADE_AMOUNT_USD || "50");
 
   // Resolve collections once (ctx.collection returns a Promise)
-  const budgetCollection = await ctx.collection<Budget>("budget");
   const positionsCollection = await ctx.collection<Position>("positions");
   const tradesCollection = await ctx.collection<Trade>("trades");
 
-  // Check budget
-  const budget = (await budgetCollection.findOne({
-    key: "global",
-  })) as Budget | null;
-  const maxBudget = parseFloat(ctx.env.MAX_BUDGET_USD || "1000");
-
-  if (side === "BUY" && budget && budget.remaining < tradeAmount) {
-    console.log(`[copy_trade] BUDGET_EXHAUSTED: remaining=${budget.remaining} need=${tradeAmount}`);
-    return { status: "BUDGET_EXHAUSTED" };
+  // Budget check: read USDC.e balance on-chain (source of truth). If we don't
+  // have enough for the $1 minimum notional, skip. This avoids the local
+  // budget counter drifting out of sync with the real wallet.
+  if (side === "BUY") {
+    const pk = ctx.env.PRIVATE_KEY as `0x${string}`;
+    const address = privateKeyToAccount(
+      pk.startsWith("0x") ? pk : (`0x${pk}` as `0x${string}`)
+    ).address;
+    const balResp = (await ctx.fetch(
+      "https://polygon-bor-rpc.publicnode.com",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "eth_call",
+          params: [
+            {
+              to: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+              data: "0x70a08231000000000000000000000000" + address.slice(2).toLowerCase(),
+            },
+            "latest",
+          ],
+          id: 1,
+        }),
+      }
+    )) as { result?: string };
+    const usdcBalance = balResp?.result ? Number(BigInt(balResp.result)) / 1e6 : 0;
+    if (usdcBalance < 1.1) {
+      console.log(`[copy_trade] BALANCE_LOW: $${usdcBalance.toFixed(2)} (need >=$1.10)`);
+      return { status: "BALANCE_LOW", balance: usdcBalance };
+    }
   }
 
   // Look up market via Gamma
@@ -142,17 +164,6 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
       });
     }
 
-    // Decrement budget
-    const currentBudget = budget || {
-      key: "global",
-      remaining: maxBudget,
-      totalSpent: 0,
-    };
-    await budgetCollection.setById("global", {
-      key: "global",
-      remaining: currentBudget.remaining - tradeAmount,
-      totalSpent: currentBudget.totalSpent + tradeAmount,
-    });
   } else {
     // Sell: zero out position
     if (existingPos) {
