@@ -33,6 +33,7 @@ export async function lookupMarketByTokenId(
       negRisk: m.negRiskOther === true,
       enableOrderBook: m.enableOrderBook === true,
       closed: m.closed === true,
+      feeRateBps: m.takerBaseFee ?? 0,
       outcomePrices: [
         parseFloat(outcomePrices[0]) || 0,
         parseFloat(outcomePrices[1]) || 0,

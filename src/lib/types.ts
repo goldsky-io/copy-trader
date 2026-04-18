@@ -65,6 +65,7 @@ export type MarketInfo = {
   negRisk: boolean;
   enableOrderBook: boolean;
   closed: boolean;
+  feeRateBps: number;
   outcomePrices: [number, number];
   clobTokenIds: [string, string];
 };

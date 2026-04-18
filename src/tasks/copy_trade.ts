@@ -5,7 +5,7 @@
  * Determines buy/sell side, looks up market via Gamma, places CLOB order.
  */
 import type { TaskContext } from "compose";
-import { getClobClient, executeTrade } from "../lib/clob";
+import { executeTrade } from "../lib/clob";
 import { lookupMarketByTokenId } from "../lib/gamma";
 import type { OrderFillRow, Position, Trade, Budget } from "../lib/types";
 
@@ -77,20 +77,18 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
     }
   }
 
-  // Execute CLOB trade
-  const client = await getClobClient(
-    ctx.env.PRIVATE_KEY,
-    ctx.env.CLOB_HOST || "https://clob.polymarket.com"
-  );
-
+  // Execute CLOB trade via proxy
   const result = await executeTrade(
-    client,
+    ctx,
+    ctx.env.PRIVATE_KEY,
+    ctx.env.CLOB_HOST || "https://fly-polymarket-proxy.fly.dev",
     tokenId,
     side,
     tradeAmount,
     whalePrice,
     market.tickSize,
-    market.negRisk
+    market.negRisk,
+    market.feeRateBps
   );
 
   if (!result.success) {

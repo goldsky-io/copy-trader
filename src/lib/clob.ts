@@ -1,33 +1,77 @@
 /**
- * Polymarket CLOB client wrapper.
- * Uses @polymarket/clob-client SDK for EIP-712 signing and order placement.
+ * Minimal Polymarket CLOB client that uses ctx.fetch for all HTTP.
+ *
+ * The @polymarket/clob-client SDK uses axios, which fails under Compose's
+ * Deno runtime (no --allow-net on task binaries). We reuse the SDK's pure
+ * signing utilities (no HTTP) and route every API call through ctx.fetch,
+ * which bridges to the host process that has network permissions.
+ *
+ * All requests are made to CLOB_HOST, which should point at our Fly.io
+ * proxy in Frankfurt (clob.polymarket.com is geo-blocked from US-hosted
+ * Compose tasks).
  */
+import type { TaskContext } from "compose";
 import { Wallet } from "@ethersproject/wallet";
-import { ClobClient, Side, OrderType } from "@polymarket/clob-client";
+import { OrderBuilder } from "@polymarket/clob-client/dist/order-builder/builder.js";
+import { orderToJson } from "@polymarket/clob-client/dist/utilities.js";
+import { Side, OrderType, SignatureType } from "@polymarket/clob-client";
 import type { TickSize } from "@polymarket/clob-client";
-import { CHAIN_ID } from "./types";
+import { createL1Headers, createL2Headers } from "@polymarket/clob-client/dist/headers/index.js";
 
-let cachedClient: ClobClient | null = null;
+const CHAIN_ID = 137;
+
+type ApiCreds = { key: string; secret: string; passphrase: string };
+
+let cachedCreds: ApiCreds | null = null;
+
+function normalizePk(pk: string): `0x${string}` {
+  return (pk.startsWith("0x") ? pk : `0x${pk}`) as `0x${string}`;
+}
 
 /**
- * Get or create an authenticated CLOB client using EOA signing.
- * No proxy wallet — funds live directly on the EOA.
- * Caches the client since API key derivation is expensive.
+ * Fetch (or derive) the L2 API credentials for this wallet.
+ * Uses L1 EIP-712 auth headers; POST /auth/api-key creates, GET /auth/derive-api-key fetches existing.
  */
-export async function getClobClient(
+export async function getApiCreds(
+  ctx: TaskContext,
   privateKey: string,
   host: string
-): Promise<ClobClient> {
-  if (cachedClient) return cachedClient;
+): Promise<ApiCreds> {
+  if (cachedCreds) return cachedCreds;
 
-  const pk = privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`;
-  const wallet = new Wallet(pk);
-  const tempClient = new ClobClient(host, CHAIN_ID, wallet);
-  const creds = await tempClient.createOrDeriveApiKey();
+  const wallet = new Wallet(normalizePk(privateKey));
+  const l1Headers = await createL1Headers(wallet as any, CHAIN_ID);
 
-  // EOA-mode CLOB client (no funder/proxy arg).
-  cachedClient = new ClobClient(host, CHAIN_ID, wallet, creds);
-  return cachedClient;
+  // Try create first; if already exists (empty key), fall back to derive
+  try {
+    const created = (await ctx.fetch(`${host}/auth/api-key`, {
+      method: "POST",
+      headers: l1Headers as Record<string, string>,
+    })) as { apiKey?: string; secret?: string; passphrase?: string };
+
+    if (created?.apiKey) {
+      cachedCreds = {
+        key: created.apiKey,
+        secret: created.secret!,
+        passphrase: created.passphrase!,
+      };
+      return cachedCreds;
+    }
+  } catch {
+    // fall through to derive
+  }
+
+  const derived = (await ctx.fetch(`${host}/auth/derive-api-key`, {
+    method: "GET",
+    headers: l1Headers as Record<string, string>,
+  })) as { apiKey: string; secret: string; passphrase: string };
+
+  cachedCreds = {
+    key: derived.apiKey,
+    secret: derived.secret,
+    passphrase: derived.passphrase,
+  };
+  return cachedCreds;
 }
 
 export type TradeResult = {
@@ -37,62 +81,90 @@ export type TradeResult = {
 };
 
 /**
- * Execute a FAK (Fill-and-Kill) market order on Polymarket CLOB.
+ * Build, sign, and submit a FAK (Fill-and-Kill) market order to the CLOB.
+ * All HTTP goes through ctx.fetch to the host → proxy → CLOB.
  */
 export async function executeTrade(
-  client: ClobClient,
+  ctx: TaskContext,
+  privateKey: string,
+  host: string,
   tokenId: string,
   side: "BUY" | "SELL",
   amountUsd: number,
   whalePrice: number,
   tickSize: string,
-  negRisk: boolean
+  negRisk: boolean,
+  feeRateBps: number
 ): Promise<TradeResult> {
   try {
-    // Use the whale's fill price as our entry price. That's the price we want
-    // to match for copy-trading — don't chase the current book (which may have
-    // moved). CLOB will fill at this price or better (or reject).
     if (!whalePrice || whalePrice <= 0 || whalePrice >= 1) {
       return { success: false, error: `Invalid whale price: ${whalePrice}` };
     }
 
-    // Round to tick size so price is valid on the book
+    // Round to tick size and compute size/amount matching SDK conventions
     const tick = parseFloat(tickSize) || 0.01;
     const price = Math.round(whalePrice / tick) * tick;
 
-    // Calculate size (shares) for the configured USD amount
     let shares = Math.floor(amountUsd / price);
-
-    // Enforce CLOB's minimum notional of $1 (most crypto 5m markets require 5 shares)
-    const MIN_SHARES = 5;
+    const MIN_SHARES = 5; // most crypto 5m markets require >=5 shares
     if (shares < MIN_SHARES) shares = MIN_SHARES;
-    console.log(`[clob] ${side} ${shares} shares @ ${price} (notional=$${(shares*price).toFixed(2)})`);
 
+    // SDK's `amount` param for createMarketOrder:
+    //   BUY: USDC to spend (shares * price)
+    //   SELL: shares to sell
     const amount = side === "BUY" ? shares * price : shares;
 
-    const resp = await client.createAndPostMarketOrder(
+    const wallet = new Wallet(normalizePk(privateKey));
+    const builder = new OrderBuilder(
+      wallet as any,
+      CHAIN_ID,
+      SignatureType.EOA
+    );
+
+    console.log(
+      `[clob] ${side} ${shares} shares @ ${price} (notional=$${(shares * price).toFixed(2)})`
+    );
+
+    // Build + sign the order locally (pure crypto, no HTTP)
+    const signedOrder = await builder.buildMarketOrder(
       {
         tokenID: tokenId,
         price,
         amount,
         side: side === "BUY" ? Side.BUY : Side.SELL,
-      },
-      { tickSize: tickSize as TickSize, negRisk },
-      OrderType.FAK
+        feeRateBps,
+      } as any,
+      { tickSize: tickSize as TickSize, negRisk }
     );
 
-    const result = resp as {
+    const creds = await getApiCreds(ctx, privateKey, host);
+    const body = orderToJson(signedOrder, creds.key, OrderType.FAK);
+    const bodyStr = JSON.stringify(body);
+
+    const l2Headers = await createL2Headers(
+      wallet as any,
+      creds,
+      { method: "POST", requestPath: "/order", body: bodyStr }
+    );
+
+    const resp = (await ctx.fetch(`${host}/order`, {
+      method: "POST",
+      headers: {
+        ...l2Headers,
+        "Content-Type": "application/json",
+      } as Record<string, string>,
+      body: bodyStr,
+    })) as {
       orderID?: string;
       orderId?: string;
       errorMsg?: string;
       error?: string;
     };
-    const orderId = result.orderID || result.orderId;
-    const errorMsg = result.errorMsg || result.error;
 
-    if (errorMsg) {
-      return { success: false, error: errorMsg, orderId };
-    }
+    const orderId = resp.orderID || resp.orderId;
+    const errorMsg = resp.errorMsg || resp.error;
+
+    if (errorMsg) return { success: false, error: errorMsg, orderId };
     return { success: true, orderId };
   } catch (err) {
     return { success: false, error: String(err) };
