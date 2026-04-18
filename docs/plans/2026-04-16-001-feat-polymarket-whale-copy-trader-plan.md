@@ -1,13 +1,37 @@
 ---
 title: "Polymarket Whale Copy-Trading Bot"
 type: feat
-status: active
+status: shipped
 date: 2026-04-16
+shipped: 2026-04-18
 origin: docs/brainstorms/2026-04-16-whale-copy-trading-brainstorm.md
 deepened: 2026-04-16
 ---
 
 # Polymarket Whale Copy-Trading Bot
+
+## Shipped state (2026-04-18)
+
+The bot is live as Compose app **`copy-trader`** on Adam's zone. See [`README.md`](../../README.md) for current operating instructions. Below is a diff from what this plan called for vs. what actually shipped:
+
+| Plan | Shipped | Why |
+|------|---------|-----|
+| Postgres sink + cursor-based polling | **Webhook sink** directly to `copy_trade` HTTP task | Simpler, no middle storage, matches Turbo's intended Compose integration pattern |
+| `@polymarket/clob-client` SDK for order execution | **Pure signing utilities + `ctx.fetch`** through a Fly proxy | Compose task binaries compile without `--allow-net`; SDK's axios calls fail. Reuse only the pure crypto parts. |
+| `clob.polymarket.com` direct | **`fly-polymarket-proxy.fly.dev`** (Amsterdam) | Polymarket geo-blocks the US; Compose runs in us-west |
+| Proxy wallet pattern (Polymarket Gnosis Safe) | **EOA signing** | Template-friendly — users don't need a pre-existing Polymarket account, just an EOA |
+| Local `budget` collection | **On-chain USDC balance check** | Local counter drifted out of sync; the chain is the source of truth |
+| Local `positions` collection for sells/redeem | **Polymarket data API** for positions | Same — local collection diverged from on-chain truth |
+| Manual USDC approvals in setup docs | **`setup_approvals` HTTP task** (gas-sponsored) | Idempotent, one curl call, no MetaMask needed |
+
+## Key learnings (captured as solution docs)
+- [`finding-profitable-polymarket-traders.md`](../solutions/integration-issues/finding-profitable-polymarket-traders.md) — how to use the Kafka PnL pipeline to find wallets to copy
+- [`compose-tasks-calling-external-apis.md`](../solutions/integration-issues/compose-tasks-calling-external-apis.md) — the `ctx.fetch` + proxy pattern for any SDK that uses its own HTTP
+
+## Related repos
+- [`fly-polymarket-proxy`](https://github.com/endlesssky/fly-polymarket-proxy) — the transparent forwarder
+
+---
 
 ## Enhancement Summary
 
