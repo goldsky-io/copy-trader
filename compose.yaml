@@ -8,7 +8,7 @@ env:
     MAX_BUDGET_USD: "5"
     CLOB_HOST: "https://fly-polymarket-proxy.fly.dev"
     GAMMA_HOST: "https://gamma-api.polymarket.com"
-    WATCHED_WALLETS: "0xff6ecab4cb68fd2de71222f4f190a77c1812176e,0x1ac5696a7c6bda958fae00eceb761f111f5607f9,0x9cba9eff450167f1d0d4e375ed522c69441cfc18,0x5298e13c9ebd10baf366f96db7d9691ad6bbf219"
+    WATCHED_WALLETS: "0xff6ecab4cb68fd2de71222f4f190a77c1812176e,0x1ac5696a7c6bda958fae00eceb761f111f5607f9,0x9cba9eff450167f1d0d4e375ed522c69441cfc18,0x5298e13c9ebd10baf366f96db7d9691ad6bbf219,0xb265dcd69d1478002e88a64e7f4d4fbd778b1ce7,0xa3e1dbda36378ca2c87ee5a0b3663074385e689e,0x9a03850871369e724687cd13e0fdad67f9a40b88"
 tasks:
   - name: "copy_trade"
     path: "./src/tasks/copy_trade.ts"
