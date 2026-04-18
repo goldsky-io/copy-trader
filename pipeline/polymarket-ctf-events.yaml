@@ -9,7 +9,10 @@ sources:
     version: 1.0.0
     start_at: latest
     filter: >-
-      address = '0x4bfb41d5b3570defd03c39a9a4d8de6bd8b8982e'
+      address IN (
+        '0x4bfb41d5b3570defd03c39a9a4d8de6bd8b8982e',
+        '0xc5d563a36ae78145c45a50134d48a1215220f80a'
+      )
 
 transforms:
   decoded_fills:
