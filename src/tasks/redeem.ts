@@ -35,8 +35,13 @@ export async function main(ctx: TaskContext) {
     pk.startsWith("0x") ? pk : (`0x${pk}` as `0x${string}`)
   ).address;
 
+  // sizeThreshold=0 is required: Polymarket's default threshold is 1.0, which
+  // hides any position holding <1 share. Fills that land just under 1 share
+  // (e.g. 0.9985 when buying at $0.99 due to fee routing) would otherwise
+  // never surface here, and winning positions of that size would sit
+  // un-redeemed indefinitely.
   const resp = (await ctx.fetch(
-    `https://data-api.polymarket.com/positions?user=${address}&limit=100&sortBy=CURRENT&sortOrder=DESC`
+    `https://data-api.polymarket.com/positions?user=${address}&limit=100&sortBy=CURRENT&sortOrder=DESC&sizeThreshold=0`
   )) as DataApiPosition[];
 
   const toRedeem = (resp ?? []).filter(
