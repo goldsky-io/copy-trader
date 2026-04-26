@@ -27,6 +27,7 @@ export async function main(ctx: TaskContext) {
   const exchanges = [
     { name: "CTF Exchange", address: CONTRACTS.ctfExchange },
     { name: "NegRisk Exchange", address: CONTRACTS.negRiskExchange },
+    { name: "NegRisk Adapter", address: CONTRACTS.negRiskAdapter },
   ];
 
   const results: Array<{ name: string; type: string; tx: string }> = [];
