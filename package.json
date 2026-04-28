@@ -4,8 +4,8 @@
   "private": true,
   "description": "Polymarket whale copy-trading bot powered by Goldsky Compose + Turbo",
   "dependencies": {
-    "@polymarket/clob-client": "^5.1.3",
     "@ethersproject/wallet": "^5.8.0",
+    "@polymarket/clob-client": "^5.1.3",
     "viem": "^2.43.2"
   }
 }

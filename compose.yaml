@@ -43,3 +43,27 @@ tasks:
         expression: "0 */5 * * * *"
       - type: "http"
         authentication: "auth_token"
+  - name: "reconcile"
+    path: "./src/tasks/reconcile.ts"
+    triggers:
+      - type: "cron"
+        expression: "0 */5 * * * *"
+      - type: "http"
+        authentication: "auth_token"
+  - name: "pull_trades"
+    path: "./src/tasks/pull_trades.ts"
+    triggers:
+      - type: "cron"
+        expression: "0 */5 * * * *"
+      - type: "http"
+        authentication: "auth_token"
+  - name: "debug_attempts"
+    path: "./src/tasks/debug_attempts.ts"
+    triggers:
+      - type: "http"
+        authentication: "auth_token"
+  - name: "liquidate"
+    path: "./src/tasks/liquidate.ts"
+    triggers:
+      - type: "http"
+        authentication: "auth_token"
