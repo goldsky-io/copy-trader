@@ -61,14 +61,12 @@ transforms:
     sql: |
       SELECT * FROM order_fills
       WHERE maker IN (
-        '0x16b251e0f8b8315a871e7a14596a01da3b53aa5a',
-        '0x0b995ff0078ba4f8849b99adfc93d74667498bdd',
-        '0x7203d27522b0144113c36d25485c557c9185795a'
+        '0x48de48b1ee7db2de50d5a4eefe267c0d486295ba',
+        '0xbb947a6a8ec8748ea79bff2f968dee29fe85243c'
       )
       OR taker IN (
-        '0x16b251e0f8b8315a871e7a14596a01da3b53aa5a',
-        '0x0b995ff0078ba4f8849b99adfc93d74667498bdd',
-        '0x7203d27522b0144113c36d25485c557c9185795a'
+        '0x48de48b1ee7db2de50d5a4eefe267c0d486295ba',
+        '0xbb947a6a8ec8748ea79bff2f968dee29fe85243c'
       )
 
 sinks:
