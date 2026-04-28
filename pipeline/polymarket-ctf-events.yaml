@@ -8,10 +8,14 @@ sources:
     dataset_name: matic.raw_logs
     version: 1.0.0
     start_at: latest
+    # V2 cutover (2026-04-28). V1 exchanges
+    # 0x4bfb...82e (CTF) and 0xc5d5...80a (NegRisk) are dead — V1-signed orders
+    # are no longer accepted, so any future logs from those addresses are
+    # post-mortem and irrelevant to the copy bot.
     filter: >-
       address IN (
-        '0x4bfb41d5b3570defd03c39a9a4d8de6bd8b8982e',
-        '0xc5d563a36ae78145c45a50134d48a1215220f80a'
+        '0xe111180000d2663c0091e4f400237545b87b996b',
+        '0xe2222d279d744050d28e00520010520000310f59'
       )
 
 transforms:

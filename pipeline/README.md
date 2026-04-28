@@ -4,7 +4,7 @@ Goldsky Turbo pipeline that watches Polymarket's CTF Exchange on Polygon for `Or
 
 ## Flow
 
-1. Source: `matic.raw_logs`, filtered to `0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E` (CTF Exchange)
+1. Source: `matic.raw_logs`, filtered to the V2 exchanges (`0xE11118...B996B` CTF and `0xe22222...0F59` NegRisk). The pre-2026-04-28 V1 exchanges are dead.
 2. Decode `OrderFilled` events (maker/taker are indexed on this contract)
 3. Flatten into a tabular transform: `maker`, `taker`, asset IDs, amounts
 4. Filter to the watched wallet list
