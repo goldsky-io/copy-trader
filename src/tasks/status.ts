@@ -142,6 +142,7 @@ export async function main(ctx: TaskContext) {
     pendingRedemptions: pendingRedeem.slice(0, 5).map((p) => ({
       market: p.title,
       size: p.size,
+      currentValue: p.currentValue,
       pnl: p.cashPnl,
     })),
   };

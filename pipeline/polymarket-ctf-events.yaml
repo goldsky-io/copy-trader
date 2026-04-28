@@ -30,7 +30,7 @@ transforms:
         transaction_hash,
         to_timestamp(block_timestamp) AS block_timestamp,
         evm_log_decode(
-          '[{"anonymous":false,"inputs":[{"indexed":true,"name":"orderHash","type":"bytes32"},{"indexed":true,"name":"maker","type":"address"},{"indexed":true,"name":"taker","type":"address"},{"indexed":false,"name":"makerAssetId","type":"uint256"},{"indexed":false,"name":"takerAssetId","type":"uint256"},{"indexed":false,"name":"makerAmountFilled","type":"uint256"},{"indexed":false,"name":"takerAmountFilled","type":"uint256"},{"indexed":false,"name":"fee","type":"uint256"}],"name":"OrderFilled","type":"event"}]',
+          '[{"anonymous":false,"inputs":[{"indexed":true,"name":"orderHash","type":"bytes32"},{"indexed":true,"name":"maker","type":"address"},{"indexed":true,"name":"taker","type":"address"},{"indexed":false,"name":"side","type":"uint8"},{"indexed":false,"name":"makerAssetId","type":"uint256"},{"indexed":false,"name":"takerAssetId","type":"uint256"},{"indexed":false,"name":"makerAmountFilled","type":"uint256"},{"indexed":false,"name":"takerAmountFilled","type":"uint256"},{"indexed":false,"name":"signature1","type":"bytes32"},{"indexed":false,"name":"signature2","type":"bytes32"}],"name":"OrderFilled","type":"event"}]',
           topics,
           `data`
         ) AS `decoded`
@@ -48,11 +48,10 @@ transforms:
         block_timestamp,
         LOWER(`decoded`.event_params[2]) AS maker,
         LOWER(`decoded`.event_params[3]) AS taker,
-        `decoded`.event_params[4] AS maker_asset_id,
-        `decoded`.event_params[5] AS taker_asset_id,
-        CAST(`decoded`.event_params[6] AS DOUBLE) / 1e6 AS maker_amount,
-        CAST(`decoded`.event_params[7] AS DOUBLE) / 1e6 AS taker_amount,
-        CAST(`decoded`.event_params[8] AS DOUBLE) / 1e6 AS fee
+        `decoded`.event_params[5] AS maker_asset_id,
+        `decoded`.event_params[6] AS taker_asset_id,
+        CAST(`decoded`.event_params[7] AS DOUBLE) / 1e6 AS maker_amount,
+        CAST(`decoded`.event_params[8] AS DOUBLE) / 1e6 AS taker_amount
       FROM decoded_fills
       WHERE `decoded`.event_signature = 'OrderFilled'
 
