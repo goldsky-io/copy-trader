@@ -30,6 +30,7 @@ export async function lookupMarketByTokenId(
       conditionId: m.conditionId,
       question: m.question,
       tickSize: m.orderPriceMinTickSize?.toString() || "0.01",
+      minOrderSize: parseFloat(m.orderMinSize) || 1,
       // `negRisk` is the flag we want (NegRisk Exchange routing).
       // `negRiskOther` is unrelated (refers to companion markets in multi-outcome events).
       negRisk: m.negRisk === true,

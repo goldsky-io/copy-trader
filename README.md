@@ -175,12 +175,17 @@ Returns a JSON snapshot of bot state — designed for dashboards or `curl | jq`.
 
 ## Key contracts (Polygon)
 
+Polymarket cut over to CLOBv2 on 2026-04-28. The V1 exchanges below the line are dead — V1-signed orders are no longer accepted.
+
 | Contract             | Address                                      |
 |----------------------|----------------------------------------------|
-| CTF Exchange         | `0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E` |
-| NegRisk Exchange     | `0xC5d563A36AE78145C45a50134d48A1215220f80a` |
+| CTF Exchange (V2)    | `0xE111180000d2663C0091e4f400237545B87B996B` |
+| NegRisk Exchange (V2)| `0xe2222d279d744050d28e00520010520000310F59` |
+| NegRisk Adapter      | `0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296` |
 | ConditionalTokens    | `0x4D97DCd97eC945f40cF65F87097ACe5EA0476045` |
-| USDC.e (collateral)  | `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174` |
+| pUSD (V2 collateral) | `0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB` |
+| USDC.e (legacy)      | `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174` |
+| CollateralOnramp     | `0x93070a847efEf7F70739046A929D47a521F5B8ee` |
 
 ---
 

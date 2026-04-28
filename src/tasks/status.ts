@@ -10,12 +10,13 @@
  */
 import type { TaskContext } from "compose";
 import { privateKeyToAccount } from "viem/accounts";
+import { CONTRACTS } from "../lib/types";
 
-const USDC = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
 const POLYGON_RPC = "https://polygon-bor-rpc.publicnode.com";
 
-async function getUsdcBalance(
+async function getErc20Balance(
   ctx: TaskContext,
+  token: string,
   address: string
 ): Promise<number> {
   const resp = (await ctx.fetch(POLYGON_RPC, {
@@ -26,7 +27,7 @@ async function getUsdcBalance(
       method: "eth_call",
       params: [
         {
-          to: USDC,
+          to: token,
           data:
             "0x70a08231000000000000000000000000" +
             address.slice(2).toLowerCase(),
@@ -50,9 +51,12 @@ export async function main(ctx: TaskContext) {
     .map((w: string) => w.trim())
     .filter(Boolean);
 
-  // Fetch balance, trades, positions in parallel
-  const [balance, trades, positions] = await Promise.all([
-    getUsdcBalance(ctx, address),
+  // Fetch balances, trades, positions in parallel.
+  // pUSD = trading collateral (V2). USDC.e is shown so post-cutover wallets
+  // funded with USDC.e can see if the wrap step ran.
+  const [pUsdBalance, usdcEBalance, trades, positions] = await Promise.all([
+    getErc20Balance(ctx, CONTRACTS.pUsd, address),
+    getErc20Balance(ctx, CONTRACTS.usdcE, address),
     ctx.fetch(
       `https://data-api.polymarket.com/trades?user=${address}&limit=100`
     ) as Promise<any[]>,
@@ -107,7 +111,8 @@ export async function main(ctx: TaskContext) {
   return {
     wallet: {
       address,
-      usdcBalance: Number(balance.toFixed(6)),
+      pUsdBalance: Number(pUsdBalance.toFixed(6)),
+      usdcEBalance: Number(usdcEBalance.toFixed(6)),
     },
     watching: {
       count: watchedWallets.length,
@@ -137,6 +142,7 @@ export async function main(ctx: TaskContext) {
     pendingRedemptions: pendingRedeem.slice(0, 5).map((p) => ({
       market: p.title,
       size: p.size,
+      currentValue: p.currentValue,
       pnl: p.cashPnl,
     })),
   };

@@ -3,12 +3,19 @@
  *
  * Receives a decoded OrderFilled event row from the pipeline.
  * Determines buy/sell side, looks up market via Gamma, places CLOB order.
+ *
+ * This task is the attempt log only. The CLOB's risk-delay queue makes
+ * the synchronous /order response unreliable for fill outcome (most orders
+ * come back status=delayed and resolve async 5–30s later). We record what
+ * we tried; reconcile + pull_trades pull on-chain truth into positions and
+ * trades collections.
  */
 import type { TaskContext } from "compose";
 import { privateKeyToAccount } from "viem/accounts";
 import { executeTrade } from "../lib/clob";
 import { lookupMarketByTokenId } from "../lib/gamma";
-import type { OrderFillRow, Position, Trade } from "../lib/types";
+import { CONTRACTS } from "../lib/types";
+import type { OrderFillRow, TradeAttempt } from "../lib/types";
 
 export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
   console.log("[copy_trade] invoked with params:", JSON.stringify(params));
@@ -33,49 +40,89 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
     return { status: "SKIP_NO_TOKEN" };
   }
 
+  // Dedup: a single whale order can fill against N counterparties in one tx,
+  // emitting N OrderFilled events. Without this gate, every leg would spawn
+  // its own copy_trade — N parallel BUYs (overspend) or N parallel SELLs
+  // (race for the same shares, all but one fail with "balance is not enough").
+  // First task to claim the (tx, token, side) tuple proceeds; the rest skip.
+  const dedupKey = `${row.transaction_hash}-${tokenId}-${side}`;
+  const seenFills = await ctx.collection<{ id: string }>("seen_fills");
+  if (await seenFills.findOne({ id: dedupKey })) {
+    console.log(`[copy_trade] SKIP_DUPLICATE_FILL ${dedupKey}`);
+    return { status: "SKIP_DUPLICATE_FILL", dedupKey };
+  }
+  await seenFills.insertOne({ id: dedupKey });
+
   const tradeAmount = parseFloat(ctx.env.TRADE_AMOUNT_USD || "50");
+  const gammaHost = ctx.env.GAMMA_HOST || "https://gamma-api.polymarket.com";
 
-  // Resolve collections once (ctx.collection returns a Promise)
-  const positionsCollection = await ctx.collection<Position>("positions");
-  const tradesCollection = await ctx.collection<Trade>("trades");
+  // Compute the bot's EOA once. The same address is used for the USDC
+  // balance check (BUY) and the position lookup (SELL).
+  const pk = ctx.env.PRIVATE_KEY as `0x${string}`;
+  const address = privateKeyToAccount(
+    pk.startsWith("0x") ? pk : (`0x${pk}` as `0x${string}`)
+  ).address;
 
-  // Budget check: read USDC.e balance on-chain (source of truth). If we don't
-  // have enough for the $1 minimum notional, skip. This avoids the local
-  // budget counter drifting out of sync with the real wallet.
+  // Kick off every independent network call in parallel. Gamma is always
+  // needed; the balance check and position lookup are conditional on side.
+  // Running them concurrently typically cuts the gating phase from ~3 RTTs
+  // to ~1 RTT, which trims hundreds of milliseconds off the median fill.
+  const gammaPromise = lookupMarketByTokenId(ctx.fetch, gammaHost, tokenId);
+  const balancePromise =
+    side === "BUY"
+      ? (ctx.fetch("https://polygon-bor-rpc.publicnode.com", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "eth_call",
+            params: [
+              {
+                to: CONTRACTS.pUsd,
+                data:
+                  "0x70a08231000000000000000000000000" +
+                  address.slice(2).toLowerCase(),
+              },
+              "latest",
+            ],
+            id: 1,
+          }),
+        }) as Promise<{ result?: string }>)
+      : Promise.resolve(null);
+  // ?asset=tokenId returns just this token's position (≤1 entry), avoiding
+  // the limit/sort truncation that previously dropped low-value losers.
+  const positionPromise =
+    side === "SELL"
+      ? (ctx.fetch(
+          `https://data-api.polymarket.com/positions?user=${address}&asset=${tokenId}&sizeThreshold=0`
+        ) as Promise<Array<{ asset: string; size: number }>>)
+      : Promise.resolve(null);
+
+  // Resolve collections (cheap, local) while the network calls are in flight.
+  // Note: positions are owned by the reconcile cron (on-chain truth). We only
+  // write the attempt log here — what we tried, not what filled.
+  const attemptsCollection = await ctx.collection<TradeAttempt>("trade_attempts");
+
+  const [market, balResp, positions] = await Promise.all([
+    gammaPromise,
+    balancePromise,
+    positionPromise,
+  ]);
+
+  // Budget check: read pUSD balance on-chain (source of truth, V2 collateral).
+  // If we don't have a small buffer above TRADE_AMOUNT_USD, skip. This avoids
+  // the local budget counter drifting out of sync with the real wallet.
   if (side === "BUY") {
-    const pk = ctx.env.PRIVATE_KEY as `0x${string}`;
-    const address = privateKeyToAccount(
-      pk.startsWith("0x") ? pk : (`0x${pk}` as `0x${string}`)
-    ).address;
-    const balResp = (await ctx.fetch(
-      "https://polygon-bor-rpc.publicnode.com",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          method: "eth_call",
-          params: [
-            {
-              to: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
-              data: "0x70a08231000000000000000000000000" + address.slice(2).toLowerCase(),
-            },
-            "latest",
-          ],
-          id: 1,
-        }),
-      }
-    )) as { result?: string };
-    const usdcBalance = balResp?.result ? Number(BigInt(balResp.result)) / 1e6 : 0;
-    if (usdcBalance < 1.1) {
-      console.log(`[copy_trade] BALANCE_LOW: $${usdcBalance.toFixed(2)} (need >=$1.10)`);
-      return { status: "BALANCE_LOW", balance: usdcBalance };
+    const pUsdBalance = balResp?.result
+      ? Number(BigInt(balResp.result)) / 1e6
+      : 0;
+    if (pUsdBalance < 1.1) {
+      console.log(
+        `[copy_trade] BALANCE_LOW: $${pUsdBalance.toFixed(2)} pUSD (need >=$1.10)`
+      );
+      return { status: "BALANCE_LOW", balance: pUsdBalance };
     }
   }
-
-  // Look up market via Gamma
-  const gammaHost = ctx.env.GAMMA_HOST || "https://gamma-api.polymarket.com";
-  const market = await lookupMarketByTokenId(ctx.fetch, gammaHost, tokenId);
 
   if (!market) {
     console.log(`[copy_trade] MARKET_NOT_FOUND token=${tokenId.slice(0,15)}...`);
@@ -87,20 +134,32 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
     return { status: "MARKET_CLOSED", market: market.question };
   }
 
+  // NegRisk plumbing skip. In NegRisk markets the exchange auto-routes a
+  // single whale order through the cheapest complement tokens, emitting one
+  // OrderFilled per leg. In the plumbing legs the whale appears as taker
+  // against a regular maker, holding the WRONG complement token only as a
+  // stepping stone before the NegRisk Adapter burns the complement set to
+  // mint the token the whale actually wanted. The whale's real intent is the
+  // final leg where they appear as maker against the exchange contract.
+  // Mirroring the plumbing legs has us buying the losing side at high prices.
+  if (market.negRisk) {
+    const makerIsWhaleNeg = watchedWallets.has(row.maker.toLowerCase());
+    const takerIsWhaleNeg = watchedWallets.has(row.taker.toLowerCase());
+    if (takerIsWhaleNeg && !makerIsWhaleNeg) {
+      console.log(
+        `[copy_trade] SKIP_NEGRISK_PLUMBING tx=${row.transaction_hash} token=${tokenId.slice(0, 15)}...`
+      );
+      return { status: "SKIP_NEGRISK_PLUMBING", txHash: row.transaction_hash };
+    }
+  }
+
   // For sells, check we actually hold the share on-chain via Polymarket's
   // data API (source of truth — the local positions collection can drift).
   let sellSize = 0;
   if (side === "SELL") {
-    const pk = ctx.env.PRIVATE_KEY as `0x${string}`;
-    const address = privateKeyToAccount(
-      pk.startsWith("0x") ? pk : (`0x${pk}` as `0x${string}`)
-    ).address;
-
-    const positions = (await ctx.fetch(
-      `https://data-api.polymarket.com/positions?user=${address}&limit=100&sortBy=CURRENT&sortOrder=DESC`
-    )) as Array<{ asset: string; size: number }>;
-
-    const match = positions.find((p) => p.asset === tokenId);
+    const match = positions?.find(
+      (p: { asset: string; size: number }) => p.asset === tokenId
+    );
     if (!match || match.size <= 0) {
       console.log(
         `[copy_trade] NO_POSITION to sell for ${tokenId.slice(0, 15)}...`
@@ -123,76 +182,77 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
     tradeAmount,
     whalePrice,
     market.tickSize,
+    market.minOrderSize,
     market.negRisk,
     market.feeRateBps,
     sellSize
   );
 
+  // Classify the synchronous outcome. The CLOB risk-delay queue resolves
+  // most orders async, so `delayed` is the common path — the eventual fill
+  // (or kill) shows up later via pull_trades reading the on-chain trade tape.
+  const isZero = (s?: string) =>
+    !s || s === "0" || s === "0.0" || s === "0.00" || parseFloat(s) === 0;
+  const filledSync =
+    !isZero(result.takingAmount) || !isZero(result.makingAmount);
+  let syncStatus: TradeAttempt["syncStatus"];
   if (!result.success) {
-    console.log(`[copy_trade] TRADE_FAILED: ${side} ${market.question} — ${result.error}`);
-    return { status: "TRADE_FAILED", error: result.error, market: market.question };
-  }
-
-  console.log(`[copy_trade] TRADE_EXECUTED: ${side} ${market.question} — order ${result.orderId}`);
-
-  // Update positions
-  const existingPos = (await positionsCollection.findOne({
-    tokenId,
-  })) as Position | null;
-
-  if (side === "BUY") {
-    const shares = tradeAmount / whalePrice;
-    if (existingPos) {
-      const newSize = existingPos.size + shares;
-      const newAvg =
-        (existingPos.avgPrice * existingPos.size + whalePrice * shares) /
-        newSize;
-      await positionsCollection.setById(existingPos.id, {
-        ...existingPos,
-        size: newSize,
-        avgPrice: newAvg,
-      });
-    } else {
-      await positionsCollection.insertOne({
-        id: tokenId,
-        tokenId,
-        conditionId: market.conditionId,
-        side: market.clobTokenIds[0] === tokenId ? "YES" : "NO",
-        size: shares,
-        avgPrice: whalePrice,
-        status: "open",
-      });
-    }
-
+    syncStatus = "failed";
+  } else if (filledSync) {
+    syncStatus = "matched";
   } else {
-    // Sell: zero out position
-    if (existingPos) {
-      await positionsCollection.setById(existingPos.id, {
-        ...existingPos,
-        size: 0,
-      });
-    }
+    syncStatus = "delayed";
   }
 
-  // Record trade
-  await tradesCollection.insertOne({
-    id: `${row.transaction_hash}-${tokenId}-${Date.now()}`,
-    tokenId,
-    side,
-    amount: tradeAmount,
-    price: whalePrice,
-    whalePrice,
-    slippage: 0,
-    orderId: result.orderId,
-    eventTxHash: row.transaction_hash,
-    timestamp: new Date().toISOString(),
-  });
+  await attemptsCollection.insertOne(
+    {
+      tokenId,
+      side,
+      intendedNotional: tradeAmount,
+      whalePrice,
+      orderId: result.orderId,
+      syncStatus,
+      syncError: result.error,
+      syncTakingAmount: result.takingAmount,
+      syncMakingAmount: result.makingAmount,
+      eventTxHash: row.transaction_hash,
+      timestamp: new Date().toISOString(),
+    },
+    { id: dedupKey }
+  );
 
+  if (syncStatus === "failed") {
+    console.log(
+      `[copy_trade] TRADE_FAILED: ${side} ${market.question} — ${result.error}`
+    );
+    return {
+      status: "TRADE_FAILED",
+      error: result.error,
+      market: market.question,
+    };
+  }
+
+  if (syncStatus === "matched") {
+    console.log(
+      `[copy_trade] TRADE_EXECUTED: ${side} ${market.question} — order ${result.orderId}`
+    );
+    return {
+      status: "TRADE_EXECUTED",
+      side,
+      market: market.question,
+      orderId: result.orderId,
+    };
+  }
+
+  console.log(
+    `[copy_trade] TRADE_SUBMITTED: ${side} ${market.question} — order ${result.orderId} (status=${result.status || "delayed"})`
+  );
   return {
-    status: "TRADE_EXECUTED",
+    status: "TRADE_SUBMITTED",
     side,
     market: market.question,
     orderId: result.orderId,
+    syncStatus: result.status,
   };
 }
 
