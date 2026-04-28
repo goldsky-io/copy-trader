@@ -48,10 +48,10 @@ transforms:
         block_timestamp,
         LOWER(`decoded`.event_params[2]) AS maker,
         LOWER(`decoded`.event_params[3]) AS taker,
-        `decoded`.event_params[5] AS maker_asset_id,
-        `decoded`.event_params[6] AS taker_asset_id,
-        CAST(`decoded`.event_params[7] AS DOUBLE) / 1e6 AS maker_amount,
-        CAST(`decoded`.event_params[8] AS DOUBLE) / 1e6 AS taker_amount
+        CAST(`decoded`.event_params[4] AS INTEGER) AS side,
+        `decoded`.event_params[5] AS token_id,
+        CAST(`decoded`.event_params[6] AS DOUBLE) / 1e6 AS maker_amount,
+        CAST(`decoded`.event_params[7] AS DOUBLE) / 1e6 AS taker_amount
       FROM decoded_fills
       WHERE `decoded`.event_signature = 'OrderFilled'
 

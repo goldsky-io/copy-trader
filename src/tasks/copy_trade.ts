@@ -259,47 +259,38 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
 /**
  * Parse an OrderFilled webhook payload to determine trade direction.
  *
- * CTF Exchange OrderFilled:
- *   maker gives makerAsset of makerAmountFilled
- *   taker gives takerAsset of takerAmountFilled
- *   asset_id "0" = USDC (collateral), anything else = CTF share token
+ * V2 OrderFilled fields used here:
+ *   side = 0 (BUY) or 1 (SELL) from the MAKER's perspective
+ *   token_id = the CTF share token (collateral pUSD is implicit)
+ *   maker_amount / taker_amount = amounts in their respective tokens
  *
- * The side we care about (BUY vs SELL) is the action the WATCHED WALLET is taking.
- * The pipeline filters to trades where maker OR taker is a watched wallet.
+ * For BUY (side=0): maker pays USDC (maker_amount), receives shares (taker_amount)
+ * For SELL (side=1): maker pays shares (maker_amount), receives USDC (taker_amount)
  *
- * Price = USDC amount / shares amount (always in [0,1] for valid fills).
+ * The pipeline emits two OrderFilled rows per fill — once with the watched wallet
+ * as maker, once as taker (its counterparty's mirror). When the watched wallet is
+ * taker, its true side is the inverse of `row.side`. The dedup gate downstream
+ * collapses both to a single attempt.
  */
 function parseFill(
   row: OrderFillRow,
   watchedWallets: Set<string>
 ): { side: "BUY" | "SELL"; tokenId: string; whalePrice: number } {
   const makerIsWhale = watchedWallets.has(row.maker.toLowerCase());
-  const takerIsWhale = watchedWallets.has(row.taker.toLowerCase());
+  const makerSide: "BUY" | "SELL" = row.side === 0 ? "BUY" : "SELL";
+  const whaleSide: "BUY" | "SELL" = makerIsWhale
+    ? makerSide
+    : (makerSide === "BUY" ? "SELL" : "BUY");
 
-  // Figure out which side is USDC and which is shares
-  const makerIsUsdc = row.maker_asset_id === "0";
-  const takerIsUsdc = row.taker_asset_id === "0";
-
-  if (!makerIsUsdc && !takerIsUsdc) {
-    // Share-for-share swap, shouldn't happen in normal flow
-    return { side: "BUY", tokenId: "", whalePrice: 0 };
-  }
-
-  // Identify share token and its amount, plus the USDC amount
-  const shareTokenId = makerIsUsdc ? row.taker_asset_id : row.maker_asset_id;
-  const sharesAmount = makerIsUsdc ? row.taker_amount : row.maker_amount;
-  const usdcAmount = makerIsUsdc ? row.maker_amount : row.taker_amount;
+  // For BUY (maker perspective): maker_amount = USDC, taker_amount = shares.
+  // For SELL: swap.
+  const usdcAmount = makerSide === "BUY" ? row.maker_amount : row.taker_amount;
+  const sharesAmount = makerSide === "BUY" ? row.taker_amount : row.maker_amount;
   const price = sharesAmount > 0 ? usdcAmount / sharesAmount : 0;
 
-  // Whoever gives USDC is buying shares. Determine if watched wallet is the buyer.
-  const usdcGiver = makerIsUsdc ? "maker" : "taker";
-  const whaleIsUsdcGiver =
-    (usdcGiver === "maker" && makerIsWhale) ||
-    (usdcGiver === "taker" && takerIsWhale);
-
   return {
-    side: whaleIsUsdcGiver ? "BUY" : "SELL",
-    tokenId: shareTokenId,
+    side: whaleSide,
+    tokenId: row.token_id || "",
     whalePrice: price,
   };
 }

@@ -26,7 +26,9 @@ export const CONTRACTS = {
 
 export const CHAIN_ID = 137;
 
-/** Row from the Turbo pipeline's order_fills sink */
+/** Row from the Turbo pipeline's order_fills sink (V2 OrderFilled).
+ *  V2 dropped the maker/taker asset_id pair and added an explicit `side`.
+ *  The single `token_id` is the CTF share token; collateral (pUSD) is implicit. */
 export type OrderFillRow = {
   id: string;
   block_number: number;
@@ -35,11 +37,10 @@ export type OrderFillRow = {
   block_timestamp: string;
   maker: string;
   taker: string;
-  maker_asset_id: string;
-  taker_asset_id: string;
+  side: number;          // 0 = BUY, 1 = SELL (from maker's perspective)
+  token_id: string;
   maker_amount: number;
   taker_amount: number;
-  fee: number;
 };
 
 /** Position tracked in collections */
