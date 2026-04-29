@@ -33,9 +33,9 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
       .filter(Boolean)
   );
 
-  // Parse the fill to determine side and token
-  const { side, tokenId, whalePrice } = parseFill(row, watchedWallets);
-  console.log(`[copy_trade] parsed: side=${side} tokenId=${tokenId.slice(0,15)}... price=${whalePrice}`);
+  // Parse the fill to determine side, token, and the whale's USD notional.
+  const { side, tokenId, whalePrice, whaleUsd } = parseFill(row, watchedWallets);
+  console.log(`[copy_trade] parsed: side=${side} tokenId=${tokenId.slice(0,15)}... price=${whalePrice} whaleUsd=$${whaleUsd.toFixed(2)}`);
   if (!tokenId) {
     return { status: "SKIP_NO_TOKEN" };
   }
@@ -53,7 +53,13 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
   }
   await seenFills.insertOne({ id: dedupKey });
 
-  const tradeAmount = parseFloat(ctx.env.TRADE_AMOUNT_USD || "50");
+  // Proportional sizing: scale the trade as a fraction of the whale's USD
+  // notional, clamped to [market.minOrderSize, MAX_TRADE_USD]. The flat
+  // TRADE_AMOUNT_USD is no longer the trade size; it's only retained as a
+  // legacy fallback if WHALE_FRACTION is unset. Resolved after market lookup
+  // because we need market.minOrderSize as the per-market floor.
+  const whaleFraction = parseFloat(ctx.env.WHALE_FRACTION || "0.01");
+  const maxTradeUsd = parseFloat(ctx.env.MAX_TRADE_USD || "25");
   const gammaHost = ctx.env.GAMMA_HOST || "https://gamma-api.polymarket.com";
 
   // Compute the bot's EOA once. The same address is used for the USDC
@@ -109,21 +115,6 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
     positionPromise,
   ]);
 
-  // Budget check: read pUSD balance on-chain (source of truth, V2 collateral).
-  // If we don't have a small buffer above TRADE_AMOUNT_USD, skip. This avoids
-  // the local budget counter drifting out of sync with the real wallet.
-  if (side === "BUY") {
-    const pUsdBalance = balResp?.result
-      ? Number(BigInt(balResp.result)) / 1e6
-      : 0;
-    if (pUsdBalance < 1.1) {
-      console.log(
-        `[copy_trade] BALANCE_LOW: $${pUsdBalance.toFixed(2)} pUSD (need >=$1.10)`
-      );
-      return { status: "BALANCE_LOW", balance: pUsdBalance };
-    }
-  }
-
   if (!market) {
     console.log(`[copy_trade] MARKET_NOT_FOUND token=${tokenId.slice(0,15)}...`);
     return { status: "MARKET_NOT_FOUND", tokenId };
@@ -132,6 +123,32 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
   if (!market.enableOrderBook) {
     console.log(`[copy_trade] MARKET_CLOSED: ${market.question}`);
     return { status: "MARKET_CLOSED", market: market.question };
+  }
+
+  // Proportional sizing. Scale by the whale's USD notional on this fill,
+  // floor at the market's own minimum so no fill is dropped just for being
+  // too small, and cap at MAX_TRADE_USD to bound per-trade loss exposure.
+  const tradeAmount = Math.min(
+    Math.max(whaleUsd * whaleFraction, market.minOrderSize),
+    maxTradeUsd
+  );
+  console.log(
+    `[copy_trade] sizing: whaleUsd=$${whaleUsd.toFixed(2)} × ${whaleFraction} → $${tradeAmount.toFixed(2)} (floor=$${market.minOrderSize}, cap=$${maxTradeUsd})`
+  );
+
+  // Budget check: read pUSD balance on-chain (source of truth, V2 collateral).
+  // We need at least the trade amount plus a small buffer for fees.
+  if (side === "BUY") {
+    const pUsdBalance = balResp?.result
+      ? Number(BigInt(balResp.result)) / 1e6
+      : 0;
+    const needed = tradeAmount * 1.05;
+    if (pUsdBalance < needed) {
+      console.log(
+        `[copy_trade] BALANCE_LOW: $${pUsdBalance.toFixed(2)} pUSD (need >=$${needed.toFixed(2)})`
+      );
+      return { status: "BALANCE_LOW", balance: pUsdBalance, needed };
+    }
   }
 
   // NegRisk plumbing skip. In NegRisk markets the exchange auto-routes a
@@ -275,7 +292,7 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
 function parseFill(
   row: OrderFillRow,
   watchedWallets: Set<string>
-): { side: "BUY" | "SELL"; tokenId: string; whalePrice: number } {
+): { side: "BUY" | "SELL"; tokenId: string; whalePrice: number; whaleUsd: number } {
   const makerIsWhale = watchedWallets.has(row.maker.toLowerCase());
   const makerSide: "BUY" | "SELL" = row.side === 0 ? "BUY" : "SELL";
   const whaleSide: "BUY" | "SELL" = makerIsWhale
@@ -292,5 +309,6 @@ function parseFill(
     side: whaleSide,
     tokenId: row.token_id || "",
     whalePrice: price,
+    whaleUsd: usdcAmount,
   };
 }
