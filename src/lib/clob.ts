@@ -31,9 +31,16 @@ function normalizePk(pk: string): `0x${string}` {
   return (pk.startsWith("0x") ? pk : `0x${pk}`) as `0x${string}`;
 }
 
-/** EIP-712 domain version is the only thing that bumped (1 → 2) for orders. */
+/**
+ * EIP-712 domain version is the only thing that bumped (1 → 2) for orders.
+ * Both V2 exchanges (regular + NegRisk) share the same domain `name`
+ * "Polymarket CTF Exchange" — the negRisk distinction is encoded only in
+ * `verifyingContract`. Using a different name (e.g. "Polymarket Neg Risk CTF
+ * Exchange") produces a different EIP-712 domain hash, the recovered signer
+ * mismatches, and CLOB returns 400 `invalid signature`. Reference:
+ * Polymarket/clob-client-v2 src/order-utils/exchangeOrderBuilderV2.ts.
+ */
 const CTF_EXCHANGE_V2_DOMAIN_NAME = "Polymarket CTF Exchange";
-const NEG_RISK_EXCHANGE_V2_DOMAIN_NAME = "Polymarket Neg Risk CTF Exchange";
 const CTF_EXCHANGE_V2_DOMAIN_VERSION = "2";
 
 const ORDER_V2_TYPES = {
@@ -165,9 +172,7 @@ type V2Order = {
 function buildOrderTypedData(order: V2Order, negRisk: boolean) {
   return {
     domain: {
-      name: negRisk
-        ? NEG_RISK_EXCHANGE_V2_DOMAIN_NAME
-        : CTF_EXCHANGE_V2_DOMAIN_NAME,
+      name: CTF_EXCHANGE_V2_DOMAIN_NAME,
       version: CTF_EXCHANGE_V2_DOMAIN_VERSION,
       chainId: CHAIN_ID,
       verifyingContract: negRisk
