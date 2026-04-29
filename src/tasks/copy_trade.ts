@@ -45,13 +45,30 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
   // its own copy_trade — N parallel BUYs (overspend) or N parallel SELLs
   // (race for the same shares, all but one fail with "balance is not enough").
   // First task to claim the (tx, token, side) tuple proceeds; the rest skip.
+  //
+  // The gate is the seen_fills INSERT itself, not the findOne. Compose's
+  // `insertOne(doc, opts)` only enforces a unique PK when the id is passed via
+  // opts — a bare `insertOne({id})` puts the value in the JSON body and gives
+  // the row a random UUID PK, so two racing tasks both succeed. Passing
+  // `{ id: dedupKey }` in opts makes the INSERT the atomic gate; the race
+  // loser sees a unique-constraint throw and bails before placing a CLOB
+  // order. Without this, the bot was placing duplicate orders for whale fills
+  // with paired BUY/SELL OrderFilled events (FOU-797).
   const dedupKey = `${row.transaction_hash}-${tokenId}-${side}`;
   const seenFills = await ctx.collection<{ id: string }>("seen_fills");
   if (await seenFills.findOne({ id: dedupKey })) {
     console.log(`[copy_trade] SKIP_DUPLICATE_FILL ${dedupKey}`);
     return { status: "SKIP_DUPLICATE_FILL", dedupKey };
   }
-  await seenFills.insertOne({ id: dedupKey });
+  try {
+    await seenFills.insertOne({ id: dedupKey }, { id: dedupKey });
+  } catch (err) {
+    if (isDuplicateKeyError(err)) {
+      console.log(`[copy_trade] SKIP_DUPLICATE_FILL_RACE ${dedupKey}`);
+      return { status: "SKIP_DUPLICATE_FILL", dedupKey };
+    }
+    throw err;
+  }
 
   // Proportional sizing: scale the trade as a fraction of the whale's USD
   // notional, clamped to [market.minOrderSize, MAX_TRADE_USD]. The flat
@@ -221,22 +238,23 @@ export async function main(ctx: TaskContext, params?: Record<string, unknown>) {
     syncStatus = "delayed";
   }
 
-  await attemptsCollection.insertOne(
-    {
-      tokenId,
-      side,
-      intendedNotional: tradeAmount,
-      whalePrice,
-      orderId: result.orderId,
-      syncStatus,
-      syncError: result.error,
-      syncTakingAmount: result.takingAmount,
-      syncMakingAmount: result.makingAmount,
-      eventTxHash: row.transaction_hash,
-      timestamp: new Date().toISOString(),
-    },
-    { id: dedupKey }
-  );
+  // setById (upsert) instead of insertOne: the seen_fills gate above should
+  // already prevent any racing attempt from reaching this line, but if the
+  // gate ever slips again we want an idempotent overwrite, not a noisy
+  // duplicate-key violation that triggers [PLATFORM_ERROR] monitors (FOU-797).
+  await attemptsCollection.setById(dedupKey, {
+    tokenId,
+    side,
+    intendedNotional: tradeAmount,
+    whalePrice,
+    orderId: result.orderId,
+    syncStatus,
+    syncError: result.error,
+    syncTakingAmount: result.takingAmount,
+    syncMakingAmount: result.makingAmount,
+    eventTxHash: row.transaction_hash,
+    timestamp: new Date().toISOString(),
+  });
 
   if (syncStatus === "failed") {
     console.log(
@@ -311,4 +329,18 @@ function parseFill(
     whalePrice: price,
     whaleUsd: usdcAmount,
   };
+}
+
+/**
+ * Detect the unique-constraint / duplicate-key error thrown by Compose's
+ * `insertOne` when a row with the same id already exists. Matches the messages
+ * surfaced by both Postgres (cloud) and SQLite (local) collection backends.
+ */
+function isDuplicateKeyError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return (
+    msg.includes("duplicate key value") ||
+    msg.includes("unique constraint") ||
+    msg.includes("UNIQUE constraint failed")
+  );
 }
